@@ -1,0 +1,87 @@
+{
+  "_comment": "Three AI-generated Soft & Natural variations per focal point (Objective 6). Every variation uses the SAME recommended shades for the detected tone (shown on the Shades screen) - so the virtual try-on there stays accurate. The variations differ only in COVERAGE / intensity: how sheer or full the look is, driven by 'intensity' per step. The focal step always carries the strongest, most distinct difference (sheer -> balanced -> full).",
+
+  "lips": [
+    {
+      "id": "lips-bare",
+      "name": "Bare Petal",
+      "desc": "The softest reading of Soft & Natural. A sheer wash of your lip shade, everything else kept almost invisible.",
+      "intensity": { "lips": 0.62, "blush": 0.30, "eyebrows": 0.45, "contour": 0.35 }
+    },
+    {
+      "id": "lips-soft",
+      "name": "Soft Focus",
+      "desc": "The balanced everyday version. Defined lips in your recommended shade with just enough warmth on the cheeks.",
+      "intensity": { "lips": 0.82, "blush": 0.40, "eyebrows": 0.52, "contour": 0.45 }
+    },
+    {
+      "id": "lips-rosy",
+      "name": "Rosy Statement",
+      "desc": "The fullest coverage - the same lip shade built up richer, so the lips carry the whole look.",
+      "intensity": { "lips": 1.00, "blush": 0.44, "eyebrows": 0.58, "contour": 0.52 }
+    }
+  ],
+
+  "eyebrows": [
+    {
+      "id": "brows-feathered",
+      "name": "Feathered",
+      "desc": "Light, hair-like strokes that follow your natural brow shape. Nothing is squared off or filled solid.",
+      "intensity": { "lips": 0.34, "blush": 0.30, "eyebrows": 0.62, "contour": 0.35 }
+    },
+    {
+      "id": "brows-defined",
+      "name": "Softly Defined",
+      "desc": "The balanced version. Brows filled evenly through the body with the front kept soft.",
+      "intensity": { "lips": 0.38, "blush": 0.34, "eyebrows": 0.82, "contour": 0.45 }
+    },
+    {
+      "id": "brows-structured",
+      "name": "Structured",
+      "desc": "The fullest coverage - the same brow shade built up richer, with a clearer arch and tail.",
+      "intensity": { "lips": 0.40, "blush": 0.34, "eyebrows": 1.00, "contour": 0.52 }
+    }
+  ],
+
+  "cheeks": [
+    {
+      "id": "cheeks-veil",
+      "name": "Sheer Veil",
+      "desc": "A barely-there flush placed high on the apples. Reads like natural colour rather than product.",
+      "intensity": { "lips": 0.34, "blush": 0.60, "eyebrows": 0.45, "contour": 0.35 }
+    },
+    {
+      "id": "cheeks-glow",
+      "name": "Soft Glow",
+      "desc": "The balanced version. A warm, blended flush swept upward along the cheekbone.",
+      "intensity": { "lips": 0.38, "blush": 0.82, "eyebrows": 0.50, "contour": 0.45 }
+    },
+    {
+      "id": "cheeks-sunwashed",
+      "name": "Sun-washed",
+      "desc": "The fullest coverage - the same blush built up warmer and carried further toward the temple.",
+      "intensity": { "lips": 0.38, "blush": 1.00, "eyebrows": 0.52, "contour": 0.52 }
+    }
+  ],
+
+  "contour": [
+    {
+      "id": "contour-whisper",
+      "name": "Whisper Sculpt",
+      "desc": "The lightest shaping. A soft shadow under the cheekbone with no hard edges anywhere.",
+      "intensity": { "lips": 0.34, "blush": 0.30, "eyebrows": 0.45, "contour": 0.60 }
+    },
+    {
+      "id": "contour-soft",
+      "name": "Soft Sculpt",
+      "desc": "The balanced version. Cheekbone, jaw and nose shaped just enough to read in normal light.",
+      "intensity": { "lips": 0.38, "blush": 0.34, "eyebrows": 0.50, "contour": 0.82 }
+    },
+    {
+      "id": "contour-defined",
+      "name": "Defined Sculpt",
+      "desc": "The fullest coverage - the same contour shade built up deeper through the cheekbone and jaw.",
+      "intensity": { "lips": 0.38, "blush": 0.32, "eyebrows": 0.55, "contour": 1.00 }
+    }
+  ]
+}
