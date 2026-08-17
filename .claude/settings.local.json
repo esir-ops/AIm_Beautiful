@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls -la \"C:/Users/63998/Downloads\" | head -60)"
+    ]
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "_comment": "Foundation checker stage (Objective 8). The system recommends a shade from the detected skin tone and confirms readiness only - it does not verify the shade actually used, and provides no AR guide for foundation. Slot 5 is reserved for foundation on the product tray. Verify shade names against your physical tray inventory before evaluation.",
+
+  "light_warm":  { "shade": "Warm Ivory",   "product": "Skin Fit Second Skin Foundation", "brand": "Squad Cosmetics",  "slot": 5, "hex": "#EBC9A8" },
+  "light_cool":  { "shade": "Cool Porcelain","product": "Flawless Finish Foundation",      "brand": "Detail Cosmetics", "slot": 5, "hex": "#EDC8B4" },
+  "medium_warm": { "shade": "Golden Beige", "product": "Skin Fit Second Skin Foundation",  "brand": "Squad Cosmetics",  "slot": 5, "hex": "#C99A72" },
+  "medium_cool": { "shade": "Rose Beige",   "product": "Flawless Finish Foundation",       "brand": "Detail Cosmetics", "slot": 5, "hex": "#C09684" },
+  "dark_warm":   { "shade": "Warm Caramel", "product": "Skin Fit Second Skin Foundation",  "brand": "Squad Cosmetics",  "slot": 5, "hex": "#96663F" },
+  "dark_cool":   { "shade": "Cool Espresso","product": "Flawless Finish Foundation",       "brand": "Detail Cosmetics", "slot": 5, "hex": "#8A6255" }
+}

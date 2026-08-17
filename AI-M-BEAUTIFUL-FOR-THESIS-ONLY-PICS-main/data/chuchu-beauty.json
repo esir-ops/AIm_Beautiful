@@ -1,0 +1,51 @@
+{
+  "_comment": "Chuchu Beauty brand library. SAME shape as shades.json (tone -> step -> product) with an optional per-tone 'foundation', which is exactly what mergeBrandLibrary() in app.js already expects. Loading this file attaches these entries to the EXISTING recommendation for the same tone as additional candidates (.alt) - nothing in shades.json or foundations.json is replaced. bestProduct() then scores every candidate against the analysed skin tone and the selected makeup look and displays ONE winner, so Detail Cosmetics and Squad Cosmetics remain fully eligible. Within each tone this catalogue deliberately spans a RANGE: roughly half the shades sit closer to the skin than the primary entry (so they win on School / Professional) and half sit further from it (so they win on Date / Party). Verify shade names and hex values against your physical tray inventory before evaluation - the scoring reads the hex, so correcting a hex changes which brand is recommended.",
+
+  "light_warm": {
+    "lips":       { "shade": "Rosewood",        "product": "Velvet Blur Lip Mousse",     "brand": "Chuchu Beauty", "slot": 1, "hex": "#C9706A" },
+    "blush":      { "shade": "Bare Apricot",    "product": "Cheek Petal Cream Blush",    "brand": "Chuchu Beauty", "slot": 2, "hex": "#EDB6A6" },
+    "eyebrows":   { "shade": "Warm Walnut",     "product": "Fine Line Brow Pencil",      "brand": "Chuchu Beauty", "slot": 3, "hex": "#8A6E5A" },
+    "contour":    { "shade": "Soft Sand",       "product": "Soft Sculpt Contour Stick",  "brand": "Chuchu Beauty", "slot": 4, "hex": "#CBA184" },
+    "foundation": { "shade": "Ivory Glow",      "product": "Dewy Veil Serum Foundation", "brand": "Chuchu Beauty", "slot": 5, "hex": "#E8C6A5" }
+  },
+
+  "light_cool": {
+    "lips":       { "shade": "Soft Rose",       "product": "Velvet Blur Lip Mousse",     "brand": "Chuchu Beauty", "slot": 1, "hex": "#DFA3B0" },
+    "blush":      { "shade": "Pink Sorbet",     "product": "Cheek Petal Cream Blush",    "brand": "Chuchu Beauty", "slot": 2, "hex": "#EE9DB4" },
+    "eyebrows":   { "shade": "Soft Ash",        "product": "Fine Line Brow Pencil",      "brand": "Chuchu Beauty", "slot": 3, "hex": "#9C8375" },
+    "contour":    { "shade": "Cool Umber",      "product": "Soft Sculpt Contour Stick",  "brand": "Chuchu Beauty", "slot": 4, "hex": "#A8907F" },
+    "foundation": { "shade": "Porcelain Rose",  "product": "Dewy Veil Serum Foundation", "brand": "Chuchu Beauty", "slot": 5, "hex": "#EFCBB7" }
+  },
+
+  "medium_warm": {
+    "lips":       { "shade": "Burnt Sienna",    "product": "Velvet Blur Lip Mousse",     "brand": "Chuchu Beauty", "slot": 1, "hex": "#B85A48" },
+    "blush":      { "shade": "Muted Peach",     "product": "Cheek Petal Cream Blush",    "brand": "Chuchu Beauty", "slot": 2, "hex": "#CE9C90" },
+    "eyebrows":   { "shade": "Light Cocoa",     "product": "Fine Line Brow Pencil",      "brand": "Chuchu Beauty", "slot": 3, "hex": "#8B6B4C" },
+    "contour":    { "shade": "Deep Bronze",     "product": "Soft Sculpt Contour Stick",  "brand": "Chuchu Beauty", "slot": 4, "hex": "#8E5C3C" },
+    "foundation": { "shade": "Golden Sand",     "product": "Dewy Veil Serum Foundation", "brand": "Chuchu Beauty", "slot": 5, "hex": "#CC9E76" }
+  },
+
+  "medium_cool": {
+    "lips":       { "shade": "Berry Rose",      "product": "Velvet Blur Lip Mousse",     "brand": "Chuchu Beauty", "slot": 1, "hex": "#A05F76" },
+    "blush":      { "shade": "Bare Mauve",      "product": "Cheek Petal Cream Blush",    "brand": "Chuchu Beauty", "slot": 2, "hex": "#BE9A90" },
+    "eyebrows":   { "shade": "Deep Mocha",      "product": "Fine Line Brow Pencil",      "brand": "Chuchu Beauty", "slot": 3, "hex": "#574033" },
+    "contour":    { "shade": "Soft Taupe",      "product": "Soft Sculpt Contour Stick",  "brand": "Chuchu Beauty", "slot": 4, "hex": "#A6948A" },
+    "foundation": { "shade": "Rose Sand",       "product": "Dewy Veil Serum Foundation", "brand": "Chuchu Beauty", "slot": 5, "hex": "#B99384" }
+  },
+
+  "dark_warm": {
+    "lips":       { "shade": "Soft Chestnut",   "product": "Velvet Blur Lip Mousse",     "brand": "Chuchu Beauty", "slot": 1, "hex": "#8E5A46" },
+    "blush":      { "shade": "Warm Terracotta", "product": "Cheek Petal Cream Blush",    "brand": "Chuchu Beauty", "slot": 2, "hex": "#B06848" },
+    "eyebrows":   { "shade": "Soft Cocoa",      "product": "Fine Line Brow Pencil",      "brand": "Chuchu Beauty", "slot": 3, "hex": "#5C4230" },
+    "contour":    { "shade": "Deep Umber",      "product": "Soft Sculpt Contour Stick",  "brand": "Chuchu Beauty", "slot": 4, "hex": "#654024" },
+    "foundation": { "shade": "Warm Mahogany",   "product": "Dewy Veil Serum Foundation", "brand": "Chuchu Beauty", "slot": 5, "hex": "#8E6440" }
+  },
+
+  "dark_cool": {
+    "lips":       { "shade": "Deep Plum",       "product": "Velvet Blur Lip Mousse",     "brand": "Chuchu Beauty", "slot": 1, "hex": "#6B2A4E" },
+    "blush":      { "shade": "Soft Rosewood",   "product": "Cheek Petal Cream Blush",    "brand": "Chuchu Beauty", "slot": 2, "hex": "#8E6670" },
+    "eyebrows":   { "shade": "Soft Espresso",   "product": "Fine Line Brow Pencil",      "brand": "Chuchu Beauty", "slot": 3, "hex": "#4E3A42" },
+    "contour":    { "shade": "Cool Espresso",   "product": "Soft Sculpt Contour Stick",  "brand": "Chuchu Beauty", "slot": 4, "hex": "#574052" },
+    "foundation": { "shade": "Cool Mahogany",   "product": "Dewy Veil Serum Foundation", "brand": "Chuchu Beauty", "slot": 5, "hex": "#8E675A" }
+  }
+}
