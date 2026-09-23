@@ -1,0 +1,10 @@
+{
+  "labels": [
+    "glasses",
+    "no_glasses"
+  ],
+  "imageSize": 224,
+  "slot": "glasses",
+  "trainedWith": "trainer.html",
+  "date": "2026-09-23T20:48:57.988Z"
+}

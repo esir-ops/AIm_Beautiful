@@ -30,9 +30,10 @@ const SLOTS = {
     labels:['glasses','no_glasses'], names:['Wearing glasses','No glasses'],
     positive:'glasses', threshold:0.6, min:40, good:150,
     turnMax:TURN_OK_ACCESSORY,
-    tips:'Tap a button to record and tap again to stop. Record several people, moving slightly and changing distance. '
-        +'<b>Glasses:</b> different frames, clear lenses, thin metal rims. '
-        +'<b>No glasses:</b> dark eyebrows, bangs, deep-set eyes.',
+    tips:'Tap a button to start recording, tap it again to stop. Do glasses on first, then take them off and record again '
+        +'without moving. Then change the lighting and repeat. '
+        +'<b>Glasses:</b> try different frames, clear lenses, thin metal rims. '
+        +'<b>No glasses:</b> try dark eyebrows, bangs, deep-set eyes (these used to trick the old check).',
     heuristic:(img,lm)=>({glasses:checkAccessories(img,lm).includes('glasses')}),
   },
   occlusion:{
@@ -40,8 +41,9 @@ const SLOTS = {
     labels:['covered','clear'], names:['Face covered','Face clear'],
     positive:'covered', threshold:0.6, min:40, good:150,
     turnMax:TURN_OK_CAPTURE,
-    tips:'<b>Covered:</b> a hand on the cheek or mouth, a face mask, hair across the face, a phone or cup in front. '
-        +'<b>Clear:</b> the whole face visible, including under uneven light, since shadows fooled the old check.',
+    tips:'<b>Covered:</b> hand on the cheek or mouth, face mask, hair over the face, phone or cup in front. '
+        +'<b>Clear:</b> whole face showing. Glasses still count as clear, so record some with glasses too. '
+        +'Do both buttons for every lighting, uneven light included (shadows used to trick the old check).',
     heuristic:(img,lm)=>({covered:occlusionCheck(img,lm).occluded}),
   },
   quality:{
@@ -49,9 +51,9 @@ const SLOTS = {
     labels:QUALITY_CLASSES, multi:true, threshold:0.5, min:40, good:200,
     names:{good:'Good', smudged:'Smudged', uneven:'Uneven', amount:'Too much / too little'},
     turnMax:0.22,
-    tips:'Choose the makeup step and what is true of it right now, then record while moving slightly. '
-        +'<b>Good</b> excludes the others; the problems can be combined. Record with your real products, and include '
-        +'a bare face as <b>Too much / too little</b>.',
+    tips:'Pick the step and what\'s true about it right now, then record while moving a little. '
+        +'<b>Good</b> can\'t be combined with the others, but the problems can. Use the actual Squad and Detail products, '
+        +'and record a bare face as <b>Too much / too little</b>.',
     heuristic:(img,lm,video,step)=>{
       const q=analyzeQualityHeuristic(video,lm,step);
       return { smudged:q.issues.includes('smudged'), uneven:q.issues.includes('uneven'),
@@ -85,7 +87,7 @@ async function loadBase() {
   T.embed.add(tf.layers.globalAveragePooling2d({}));
   T.dim=T.embed.outputs[0].shape[1];
   tf.tidy(()=>T.embed.predict(tf.zeros([1,INPUT,INPUT,3])));
-  $('tg-train-status').textContent='Base model ready. Record samples, then train.';
+  $('tg-train-status').textContent='Base model loaded. Record your samples, then train.';
   refreshUi();
 }
 
@@ -115,7 +117,7 @@ async function startCamera() {
   try {
     T.stream=await navigator.mediaDevices.getUserMedia({video:{
       width:{ideal:640}, height:{ideal:480}, facingMode:'user', frameRate:{ideal:30}}});
-  } catch(e){ $('tg-status').textContent='Camera unavailable - allow camera access and reload.'; return; }
+  } catch(e){ $('tg-status').textContent='Can\'t open the camera. Allow camera access and reload the page.'; return; }
   const video=$('tg-video');
   video.srcObject=T.stream;
   T.mesh=new FaceMesh({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`});
@@ -160,13 +162,13 @@ function onResults(results) {
   const ctx=canvas.getContext('2d');
   ctx.clearRect(0,0,canvas.width,canvas.height);
   const lm=results.multiFaceLandmarks?.[0];
-  if (!lm){ $('tg-status').textContent='No face - step into view'; showLive(null); return; }
+  if (!lm){ $('tg-status').textContent='No face found, step into view'; showLive(null); return; }
 
   const frontal=faceTurnOffset(lm)<=S.turnMax;
   drawBox(ctx, lm, video, canvas, frontal);
 
   if (T.recording){
-    if (!frontal) $('tg-status').textContent='Face the mirror a little more - not recording this angle';
+    if (!frontal) $('tg-status').textContent='Face the mirror a bit more, this angle won\'t be recorded';
     else {
       $('tg-status').textContent=`Recording into the ${T.mode==='test'?'TEST':'training'} set: ${currentLabelText()}`;
       const now=performance.now();
@@ -231,7 +233,42 @@ async function addSample(image, lm, video) {
     if (T.mode==='test'){ s.heur=heur; s.inst=inst; T.test.push(s); }
     else T.train.push(s);
   } finally { T.working=false; }
+  saveSamples(false);
   refreshUi();
+}
+
+// ── Saved samples ───────────────────────
+// Each slot's samples live in IndexedDB, so switching tabs or reloading the
+// page keeps them. Still only feature numbers - never photos.
+const DB_NAME='aim-trainer', DB_STORE='samples';
+function dbDo(mode, fn) {
+  return new Promise((res,rej)=>{
+    const open=indexedDB.open(DB_NAME,1);
+    open.onupgradeneeded=()=>open.result.createObjectStore(DB_STORE);
+    open.onerror=()=>rej(open.error);
+    open.onsuccess=()=>{
+      const db=open.result, tx=db.transaction(DB_STORE,mode), req=fn(tx.objectStore(DB_STORE));
+      tx.oncomplete=()=>{ db.close(); res(req.result); };
+      tx.onerror=()=>{ db.close(); rej(tx.error); };
+    };
+  });
+}
+let saveTimer=0;
+function saveSamples(now) {
+  clearTimeout(saveTimer);
+  const put=()=>dbDo('readwrite', st=>st.put({train:T.train, test:T.test}, SLOT))
+    .catch(e=>console.warn('[trainer] could not save samples', e));
+  if (now) put(); else saveTimer=setTimeout(put, 1000);
+}
+async function loadSamples() {
+  try {
+    const v=await dbDo('readonly', st=>st.get(SLOT));
+    if (!v) return;
+    // Anything recorded while this was loading goes after the saved samples.
+    T.train=[...(v.train||[]), ...T.train];
+    T.test=[...(v.test||[]), ...T.test];
+    refreshUi();
+  } catch(e){ console.warn('[trainer] could not load saved samples', e); }
 }
 
 // ── Recording controls ──────────────────
@@ -272,9 +309,10 @@ function buildControls() {
 function toggleRecording(cls) {
   const same=T.recording && T.recClass===cls;
   T.recording=!same; T.recClass=same?-1:cls;
+  if (same) saveSamples(true);
   refreshUi();
 }
-function stopRecording(){ T.recording=false; T.recClass=-1; refreshUi(); }
+function stopRecording(){ T.recording=false; T.recClass=-1; saveSamples(true); refreshUi(); }
 function setMode(m){ T.mode=m; stopRecording(); }
 
 const positives=(list,i)=>list.reduce((n,s)=>n+s.y[i],0);
@@ -287,8 +325,8 @@ function refreshUi() {
   $('tg-mode-train').classList.toggle('on', T.mode==='train');
   $('tg-mode-test').classList.toggle('on', T.mode==='test');
   $('tg-mode-note').textContent = T.mode==='test'
-    ? 'TEST set: use people who were NOT recorded for training. These samples are only used to measure accuracy.'
-    : 'Training set: these samples teach the model.';
+    ? 'Test set: only record people who weren\'t in the training set. This is just for checking accuracy.'
+    : 'Training set: the model learns from these.';
   const list=T.mode==='test'?T.test:T.train;
   if (!S.multi){
     S.labels.forEach((_,i)=>{ const el=$(`tg-count-${i}`); if (el) el.textContent=positives(list,i); });
@@ -310,20 +348,20 @@ function refreshUi() {
   if (T.embed && !T.training && !T.full){
     $('tg-train-status').textContent = enough
       ? (Math.min(...(S.multi?[counts[0]]:counts))<S.good
-          ? `Ready to train. ${S.good}+ per class from several people gives a more reliable model.`
+          ? `Ready to train. ${S.good}+ each from different people works better though.`
           : 'Ready to train.')
       : S.multi
-        ? `Need ${S.min}+ Good samples and 20+ of at least one problem to train.`
-        : `Need at least ${S.min} of each to train (${S.good}+ recommended).`;
+        ? `Record at least ${S.min} Good samples and 20 of at least one problem first.`
+        : `Record at least ${S.min} of each first (${S.good}+ is better).`;
   }
 
   // Evaluation readiness
   const tn=T.test.length;
   $('tg-test-count').innerHTML = `Test set: <b>${tn}</b> samples`
     + (tn ? ' ('+S.labels.map((l,i)=>`${S.multi?S.names[l]:S.names[i]} ${positives(T.test,i)}`).join(' · ')+')' : '')
-    + (T.head ? ' - scored against the model trained above.'
-       : T.installed ? ` - scored against the installed model (${T.installed.where}).`
-       : ' - train or install a model to compare it with the pixel rules.');
+    + (T.head ? ', checked with the model trained above.'
+       : T.installed ? `, checked with the installed model (${T.installed.where}).`
+       : '. Train or install a model first so there\'s something to compare with the pixel rules.');
   $('tg-eval').disabled=!tn;
 }
 
@@ -369,7 +407,7 @@ async function train() {
   await T.head.fit(xs, ys, fitOpts);
 
   // Held-out score, measured the same way the app decides.
-  let msg='Done.';
+  let msg='Done!';
   if (val){
     const probs=await T.head.predict(val[0]).array();
     const truth=va.flatMap(s=>[s.y, s.y]);
@@ -380,7 +418,7 @@ async function train() {
   T.full=tf.sequential();
   T.full.add(T.embed);
   T.full.add(T.head);
-  status.textContent=msg+' Test it live, then install.';
+  status.textContent=msg+' Try it in Test live before installing.';
   T.training=false;
   $('tg-install').disabled=false; $('tg-download').disabled=false;
   refreshUi();
@@ -388,7 +426,7 @@ async function train() {
 
 function heldOutSummary(probs, truth) {
   const tasks=evalTasks();
-  return 'Held-out accuracy: '+tasks.map(t=>{
+  return 'Accuracy on the samples it didn\'t train on: '+tasks.map(t=>{
     let ok=0; probs.forEach((p,i)=>{ if (t.model(p)===t.truth(truth[i])) ok++; });
     return `${t.name} ${Math.round(ok/probs.length*100)}%`;
   }).join(' · ')+'.';
@@ -415,7 +453,7 @@ async function install() {
   try {
     await T.full.save(localModelKey(SLOT));
     localStorage.setItem(localLabelsKey(SLOT), JSON.stringify(S.labels));
-    st.textContent='Installed ✓ The mirror uses this model from the next time the app loads.';
+    st.textContent='Installed ✓ The mirror will use this model next time the app is opened.';
     loadInstalled();
   } catch(e){ st.textContent='Could not install: '+e.message; }
 }
@@ -424,14 +462,14 @@ async function download() {
   await T.full.save('downloads://model');
   saveText('metadata.json', JSON.stringify({labels:S.labels, imageSize:INPUT, slot:SLOT,
     trainedWith:'trainer.html', date:new Date().toISOString()}, null, 2), 'application/json');
-  $('tg-install-status').textContent=`Downloaded model.json, model.weights.bin and metadata.json. Put all three in ${S.folder} to use this model on other computers.`;
+  $('tg-install-status').textContent=`Downloaded model.json, model.weights.bin and metadata.json. Put all 3 in ${S.folder} to use this model on another laptop.`;
 }
 
 async function removeInstalled() {
   try { await tf.io.removeModel(localModelKey(SLOT)); } catch(_){}
   localStorage.removeItem(localLabelsKey(SLOT));
   T.installed=null;
-  $('tg-install-status').textContent=`Removed. The app goes back to ${S.folder}, or to the built-in pixel rules.`;
+  $('tg-install-status').textContent=`Removed. The app will use the model in ${S.folder} now, or the pixel rules if that folder is empty.`;
   loadInstalled();
 }
 
@@ -492,8 +530,8 @@ async function evaluate() {
   $('tg-results').innerHTML=`<table class="tg-table"><thead><tr><th>Task</th><th>Method</th><th>N</th><th>Accuracy</th><th>Precision</th><th>Recall</th><th>F1</th><th>TP / FP / FN / TN</th></tr></thead><tbody>`
     +rows.map(r=>`<tr><td>${r.task}</td><td>${r.method}</td><td>${r.n}</td><td><b>${pct(r.acc)}</b></td><td>${pct(r.prec)}</td><td>${pct(r.rec)}</td><td>${pct(r.f1)}</td><td>${r.tp} / ${r.fp} / ${r.fn} / ${r.tn}</td></tr>`).join('')
     +`</tbody></table>`
-    +(probs?'':'<p class="tg-note">No model to compare yet - train one above, or install one, then record the test set again.</p>')
-    +`<p class="tg-note">Precision: of the samples it flagged, how many were right. Recall: of the true cases, how many it caught.</p>`;
+    +(probs?'':'<p class="tg-note">No model to compare yet. Train or install one above, then record the test set again.</p>')
+    +`<p class="tg-note">Precision = out of everything it flagged, how many were right. Recall = out of the real cases, how many it caught.</p>`;
   $('tg-eval-csv').disabled=false;
 }
 
@@ -518,8 +556,13 @@ function downloadCsv() {
 document.addEventListener('DOMContentLoaded',()=>{
   document.title=`${S.title} Trainer`;
   buildControls();
-  $('tg-clear').onclick=()=>{ T.train=[]; stopRecording(); };
-  $('tg-test-clear').onclick=()=>{ T.test=[]; T.lastEval=null; $('tg-results').innerHTML=''; $('tg-eval-csv').disabled=true; stopRecording(); };
+  $('tg-clear').onclick=()=>{
+    if (T.train.length && !confirm(`Delete all ${T.train.length} saved training samples for ${S.title}?`)) return;
+    T.train=[]; stopRecording(); };
+  $('tg-test-clear').onclick=()=>{
+    if (T.test.length && !confirm(`Delete all ${T.test.length} saved test samples for ${S.title}?`)) return;
+    T.test=[]; T.lastEval=null; $('tg-results').innerHTML=''; $('tg-eval-csv').disabled=true; stopRecording(); };
+  window.addEventListener('pagehide', ()=>saveSamples(true));
   $('tg-train').onclick=train;
   $('tg-install').onclick=install;
   $('tg-download').onclick=download;
@@ -527,7 +570,8 @@ document.addEventListener('DOMContentLoaded',()=>{
   $('tg-eval').onclick=evaluate;
   $('tg-eval-csv').onclick=downloadCsv;
   refreshUi();
-  loadBase().catch(e=>{ $('tg-train-status').textContent='Could not load the base model (needs internet): '+e.message; });
+  loadSamples();
+  loadBase().catch(e=>{ $('tg-train-status').textContent='Couldn\'t load the base model, check the internet. '+e.message; });
   loadInstalled();
   startCamera();
 });

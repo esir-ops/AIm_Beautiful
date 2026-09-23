@@ -1,0 +1,10 @@
+{
+  "labels": [
+    "covered",
+    "clear"
+  ],
+  "imageSize": 224,
+  "slot": "occlusion",
+  "trainedWith": "trainer.html",
+  "date": "2026-09-23T20:32:29.124Z"
+}

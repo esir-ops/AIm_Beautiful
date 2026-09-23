@@ -6,7 +6,7 @@
   <title>Model Trainer</title>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700&family=Jost:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
-  <link rel="stylesheet" href="style.css?v=51"/>
+  <link rel="stylesheet" href="style.css?v=52"/>
 </head>
 <body>
 
@@ -21,8 +21,8 @@
     </nav>
     <div class="page-header">
       <h2 class="page-title">Train <em id="tg-title">Glasses Detection</em></h2>
-      <p class="page-sub">Recorded at this mirror, so the model learns this camera, lighting and glass.<br/>
-        Only numeric features are kept in memory. No photos are saved.</p>
+      <p class="page-sub">Record samples here at the mirror so the model gets used to our camera, lighting and glass.<br/>
+        Only numbers are saved on this laptop, no photos.</p>
     </div>
 
     <div class="tg-layout">
@@ -63,7 +63,7 @@
         <section class="tg-step">
           <h3 class="tg-step-title"><span>3</span> Test live</h3>
           <div class="tg-live" id="tg-live"><span class="tg-test-label">Train first</span></div>
-          <p class="tg-note">Try to fool it. If it gets something wrong, record more of that case and train again.</p>
+          <p class="tg-note">Try to trick it. If it gets something wrong, record more of that and train again.</p>
         </section>
 
         <section class="tg-step">
@@ -78,8 +78,9 @@
 
         <section class="tg-step">
           <h3 class="tg-step-title"><span>5</span> Evaluate</h3>
-          <p class="tg-note">Switch step 1 to <b>Test set</b> and record people who were <b>not</b> recorded for training.
-            Each sample is judged by the current pixel rules and by the model, so you can compare them fairly.</p>
+          <p class="tg-note">Switch step 1 to <b>Test set</b> and record people who <b>weren't</b> in the training set.
+            Each sample gets checked by both the old pixel rules and the trained model so we can compare them.
+            We'll use these results in our evaluation.</p>
           <p class="tg-note" id="tg-test-count"></p>
           <div class="tg-btn-row">
             <button class="btn-primary tg-small" id="tg-eval" disabled>Evaluate</button>
@@ -91,6 +92,7 @@
         </section>
       </div>
     </div>
+    <p class="school-note tg-credit">Developed by Group 11 · BS Computer Engineering · School of Engineering and Architecture</p>
   </div>
 </div>
 
@@ -101,6 +103,6 @@
      heuristics the app runs. AIM_LIBRARY stops the app from booting. -->
 <script>window.AIM_LIBRARY=true;</script>
 <script src="app.js?v=51"></script>
-<script src="trainer.js?v=1"></script>
+<script src="trainer.js?v=4"></script>
 </body>
 </html>

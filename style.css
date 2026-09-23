@@ -1418,6 +1418,7 @@ body.low-light .step-mirror-col{ background:#ffffff; }
 .tg-test{ display:flex; flex-direction:column; gap:.4rem; }
 .tg-test-label{ font-family:var(--serif); font-size:1.15rem; font-weight:700; color:var(--cream); }
 .tg-back{ font-size:.78rem; font-weight:700; color:var(--rose-light); text-decoration:none; margin-top:.3rem; }
+.tg-credit{ text-align:center; margin-top:1.4rem; }
 
 @media(max-width:800px){
   .tg-layout{ flex-direction:column; align-items:stretch; }

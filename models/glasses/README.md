@@ -26,8 +26,8 @@ linked from the customer flow.
    `[tm:glasses] model ready (trained on this device)`.
 
 The trainer records with the same face crop the app uses at run time
-(`face-crop.js`). It keeps only numeric features in memory. No photos are
-stored.
+(`face-crop.js`). It saves only numeric features, per model, in this browser,
+so switching tabs or reloading keeps your samples. No photos are stored.
 
 ### Using the model on other computers
 
