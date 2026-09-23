@@ -592,6 +592,8 @@ async function initCamera() {
 }
 
 function stopStream() {
+  if (STATE.drawLoop){ STATE.drawLoop.stop(); STATE.drawLoop=null; }
+  STATE.stepFace=false;
   if (STATE.camera){try{STATE.camera.stop();}catch(e){} STATE.camera=null;}
   if (STATE.faceMesh){try{STATE.faceMesh.close();}catch(e){} STATE.faceMesh=null;}
   if (STATE.stream){STATE.stream.getTracks().forEach(t=>t.stop()); STATE.stream=null;}
@@ -985,6 +987,49 @@ function smoothLandmarks(prev, lm, turnVis, key) {
 function smoothDetectLm(lm) {
   STATE.detectLm=smoothLandmarks(STATE.detectLm, lm, turnVisibility(lm), 'detect');
   return STATE.detectLm;
+}
+
+// ── Gliding between tracking results ──
+// Tracking runs at the camera's pace (often 15-25 fps on a laptop) but the screen
+// refreshes at 60. Drawing only when a result arrived made the guides jump in
+// steps. glideStep() is called every screen refresh: it predicts a little ahead
+// from the face's current velocity and eases toward that, so motion is smooth
+// without adding lag.
+function makeGlide() { return {cur:null, tgt:null, vel:null, t:0, gap:0.04, last:0}; }
+
+function glideFeed(g, lm) {
+  const now=performance.now();
+  if (g.tgt && g.tgt.length===lm.length){
+    const dt=Math.max(0.008, (now-g.t)/1000);
+    g.gap=g.gap*0.7 + Math.min(dt,0.2)*0.3;           // typical time between results
+    g.vel=lm.map((p,i)=>({x:(p.x-g.tgt[i].x)/dt, y:(p.y-g.tgt[i].y)/dt}));
+  } else { g.vel=null; g.cur=null; }
+  g.tgt=lm.map(p=>({x:p.x,y:p.y}));
+  g.t=now;
+}
+
+function glideStep(g) {
+  if (!g.tgt) return null;
+  const now=performance.now();
+  const lead=Math.min((now-g.t)/1000, g.gap)+0.02;     // predict up to the next result, plus the ease time
+  const a=g.last ? 1-Math.exp(-Math.max(0,(now-g.last)/1000)/0.02) : 1;
+  g.last=now;
+  if (!g.cur || g.cur.length!==g.tgt.length) g.cur=g.tgt.map(p=>({x:p.x,y:p.y}));
+  for (let i=0;i<g.tgt.length;i++){
+    const v=g.vel && g.vel[i];
+    const tx=g.tgt[i].x+(v?v.x*lead:0), ty=g.tgt[i].y+(v?v.y*lead:0);
+    g.cur[i].x+=a*(tx-g.cur[i].x);
+    g.cur[i].y+=a*(ty-g.cur[i].y);
+  }
+  return g.cur;
+}
+
+// Calls fn every screen refresh until stopped.
+function startDrawLoop(fn) {
+  let raf=0, stopped=false;
+  const tick=()=>{ if (stopped) return; raf=requestAnimationFrame(tick); fn(); };
+  tick();
+  return { stop(){ stopped=true; cancelAnimationFrame(raf); } };
 }
 
 // ── Occlusion check ──
@@ -2016,7 +2061,6 @@ function showShades() {
       +(lookPhrase?` and your ${lookPhrase}`:'')+'.';
   }
   goTo('screen-shades');
-  prewarmTryOnMesh();
   // Load the quality model now so the first check isn't delayed.
   initQualityModel();
 }
@@ -2385,19 +2429,19 @@ function startStepFaceMesh() {
     const video=document.getElementById('step-video');
     const w=takeMesh(onStepResults); STATE.faceMesh=w.mesh;
     STATE.camera=startMeshLoop(video, ()=>w.ready.then(()=>STATE.faceMesh?.send({image:video})));
+    STATE.stepGlide=makeGlide();
+    if (STATE.drawLoop) STATE.drawLoop.stop();
+    STATE.drawLoop=startDrawLoop(drawStepOverlay);
   }));
 }
 
+// A new tracking result: update the filtered landmarks. The guides are drawn
+// every screen refresh in drawStepOverlay().
 function onStepResults(results) {
-  const canvas=document.getElementById('step-overlay');
-  const video=document.getElementById('step-video');
-  if (!canvas||!video) return;
-  const {W,H,effW,effH,ox,oy}=syncOverlay(canvas,video);
-  const ctx=canvas.getContext('2d');
-  ctx.clearRect(0,0,W,H);
-  if (!results.multiFaceLandmarks?.length) return;
-
-  const lm=results.multiFaceLandmarks[0];
+  if (_toShared){ onTryOnResults(results); return; }   // Preview Live is using this tracker
+  const lm=results.multiFaceLandmarks?.[0];
+  STATE.stepFace=!!lm;
+  if (!lm) return;
   STATE.lastLandmarks=lm;
 
   let headDelta = 1;
@@ -2411,21 +2455,10 @@ function onStepResults(results) {
     STATE.smoothedLm=smoothLandmarks(STATE.smoothedLm, lm, turnVisibility(lm), 'step');
   }
   const dlm=STATE.smoothedLm;
+  glideFeed(STATE.stepGlide||(STATE.stepGlide=makeGlide()), dlm);
 
-  // Guides dim as the head turns instead of disappearing.
-  const turnVis = turnVisibility(lm);
-
-  const fMap={lips:'lips',eyebrows:'eyebrows',cheeks:'blush',contour:'contour'};
-  const cs=STEPS[STATE.currentStep];
-  const fs=fMap[STATE.focal]||cs;
-  const shade=activeShades()?.[cs];
-  const hex=shade?.hex||'#e87090';
-  // The variation sets how strong the guide looks (never below 0.55).
-  const si=Math.max(0.55, styleIntensity(cs));
-  const sc=hexToRgba(hex,0.92*si);
-  const fc=hexToRgba(hex,0.30*si);
-
-  if (cs==='blush') {
+  // Blush coverage reads a slower-moving copy of the cheek points.
+  if (STEPS[STATE.currentStep]==='blush') {
     const BLUSH_IDX = [1, 10, 152, 205, 50, 116, 123, 425, 280, 345, 352, 234, 454];
     if (!STATE.blushLm) {
       STATE.blushLm = dlm.map(p => ({x:p.x, y:p.y}));
@@ -2446,6 +2479,34 @@ function onStepResults(results) {
       });
     }
   }
+  checkStepLighting(document.getElementById('step-video'));
+}
+
+// Draws the current step's guide, every screen refresh.
+function drawStepOverlay() {
+  const canvas=document.getElementById('step-overlay');
+  const video=document.getElementById('step-video');
+  if (!canvas||!video) return;
+  const {W,H,effW,effH,ox,oy}=syncOverlay(canvas,video);
+  const ctx=canvas.getContext('2d');
+  ctx.clearRect(0,0,W,H);
+  if (_toShared || !STATE.stepFace || !STATE.stepGlide || !STATE.lastLandmarks) return;
+  const dlm=glideStep(STATE.stepGlide);
+  if (!dlm) return;
+  const lm=STATE.lastLandmarks;
+
+  // Guides dim as the head turns instead of disappearing.
+  const turnVis = turnVisibility(lm);
+
+  const fMap={lips:'lips',eyebrows:'eyebrows',cheeks:'blush',contour:'contour'};
+  const cs=STEPS[STATE.currentStep];
+  const fs=fMap[STATE.focal]||cs;
+  const shade=activeShades()?.[cs];
+  const hex=shade?.hex||'#e87090';
+  // The variation sets how strong the guide looks (never below 0.55).
+  const si=Math.max(0.55, styleIntensity(cs));
+  const sc=hexToRgba(hex,0.92*si);
+  const fc=hexToRgba(hex,0.30*si);
 
   const blm = (cs==='blush' && STATE.blushLm) ? STATE.blushLm : dlm;
 
@@ -2487,7 +2548,6 @@ function onStepResults(results) {
       W/2+ox, H*0.08+oy, `500 ${px}px Jost, sans-serif`, '#ffffff', true);
   }
   ctx.restore();
-  checkStepLighting(video);
 }
 
 // ── Application quality (Objective 9) ──
@@ -3325,40 +3385,22 @@ if (!window.AIM_LIBRARY)
   document.addEventListener('DOMContentLoaded',()=>{loadData();initParticles();initTMModels();setTimeout(prewarmMesh,800);});
 
 // ── Virtual try-on ──
-let _toMesh=null, _toStream=null, _toRaf=null, _toLastLm=null, _toStepOnly=null, _toOwnsStream=false;
-
-// Pre-warms FaceMesh while the user reads the shades, so Try It On opens fast.
-function prewarmTryOnMesh() {
-  if (_toMesh) return;
-  _toMesh=new FaceMesh({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`});
-  _toMesh.setOptions({maxNumFaces:1,refineLandmarks:true,minDetectionConfidence:.6,minTrackingConfidence:.6});
-  _toMesh.onResults(onTryOnResults);
-  try {
-    const b=document.createElement('canvas'); b.width=1; b.height=1;
-    _toMesh.send({image:b}).catch(()=>{});
-  } catch(e){}
-}
+// On the step screen the preview reuses the step screen's tracker (already
+// running on the face), so it opens instantly. From the Shades screen it takes
+// the warm tracker kept ready in the background. Either way the makeup is drawn
+// every screen refresh with the same smoothing and gliding as the guides.
+let _toMesh=null, _toReady=Promise.resolve(), _toShared=false;
+let _toStream=null, _toRaf=null, _toStepOnly=null, _toOwnsStream=false;
+let _toFace=false, _toSmooth=null, _toGlide=makeGlide();
 
 function startStepTryOn() {
-  // Tear down any running try-on session
-  if(_toRaf)   { cancelAnimationFrame(_toRaf); _toRaf=null; }
-  if(_toMesh)  { try{_toMesh.close();}catch(e){} _toMesh=null; }
-  if(_toStream){ if(_toOwnsStream) _toStream.getTracks().forEach(t=>t.stop()); _toStream=null; }
-  const _tv=document.getElementById('tryon-video');
-  if(_tv) _tv.srcObject=null;
-  _toLastLm=null;
-  const _tl=document.getElementById('tryon-loading');
-  if(_tl) _tl.style.display='flex';
-
-  // Set the step-only filter BEFORE startTryOn creates the render loop
-  const step  = STEPS[STATE.currentStep];
-  _toStepOnly = step;
-
-  const label     = STEP_LABELS[step] || step;
-  const titleEl   = document.getElementById('tryon-modal-title');
-  const captionEl = document.getElementById('tryon-modal-caption');
-  if(titleEl)   titleEl.textContent   = `✦ ${label} Preview`;
-  if(captionEl) captionEl.textContent = `${label.toUpperCase()} PREVIEW  ·  YOUR RECOMMENDED SHADE`;
+  const step=STEPS[STATE.currentStep];
+  _toStepOnly=step;
+  const label=STEP_LABELS[step] || step;
+  const titleEl=document.getElementById('tryon-modal-title');
+  const captionEl=document.getElementById('tryon-modal-caption');
+  if (titleEl)   titleEl.textContent=`✦ ${label} Preview`;
+  if (captionEl) captionEl.textContent=`${label.toUpperCase()} PREVIEW  ·  YOUR RECOMMENDED SHADE`;
   startTryOn();
 }
 
@@ -3367,19 +3409,17 @@ function startTryOn() {
   modal.style.display='flex';
   const video=document.getElementById('tryon-video');
   const loading=document.getElementById('tryon-loading');
-  if(_toStream) return; // already live
+  if (_toStream) return;   // already live
 
-  // Reuse pre-warmed mesh if available (no lag); create fresh if not
-  if(!_toMesh){
-    _toMesh=new FaceMesh({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`});
-    _toMesh.setOptions({maxNumFaces:1,refineLandmarks:true,minDetectionConfidence:.6,minTrackingConfidence:.6});
-    _toMesh.onResults(onTryOnResults);
-  }
-
-  // Share the step screen's camera and pause its tracking while the try-on runs.
+  _toFace=false; _toSmooth=null; _toGlide=makeGlide();
   const live=STATE.stream && STATE.stream.getVideoTracks().some(t=>t.readyState==='live');
+  _toShared=!!(live && STATE.faceMesh && document.getElementById('screen-step')?.classList.contains('active'));
+  if (!_toShared && !_toMesh){
+    const w=takeMesh(onTryOnResults);
+    _toMesh=w.mesh; _toReady=w.ready;
+  }
   _toOwnsStream=!live;
-  if(live) STATE.meshPaused=true;
+
   (live ? Promise.resolve(STATE.stream) : openCamera())
   .then(stream=>{
     _toStream=stream;
@@ -3387,50 +3427,58 @@ function startTryOn() {
     return video.play();
   })
   .then(()=>{
-    if(loading) loading.style.display='none';
+    if (loading) loading.style.display='none';
     const canvas=document.getElementById('tryon-canvas');
     let sending=false, lastT=-1;
     function loop(){
-      if(!_toStream||!_toMesh){ _toRaf=null; return; }
+      if (!_toStream){ _toRaf=null; return; }
       _toRaf=requestAnimationFrame(loop);
-      if(!canvas||!video.videoWidth||video.readyState<2) return;
+      if (!canvas||!video.videoWidth||video.readyState<2) return;
       const vW=video.videoWidth, vH=video.videoHeight;
-      if(canvas.width!==vW) canvas.width=vW;
-      if(canvas.height!==vH) canvas.height=vH;
+      if (canvas.width!==vW) canvas.width=vW;
+      if (canvas.height!==vH) canvas.height=vH;
       const ctx=canvas.getContext('2d');
       ctx.drawImage(video,0,0,vW,vH);
-      if(_toLastLm) drawVirtualMakeup(ctx,_toLastLm,vW,vH);
-      // Track every new camera frame, one at a time.
-      if(!sending && video.currentTime!==lastT){
+      const glm=_toFace ? glideStep(_toGlide) : null;
+      if (glm) drawVirtualMakeup(ctx,glm,vW,vH);
+      // Own tracker only (shared mode is fed by the step screen). One frame at a time.
+      if (!_toShared && _toMesh && !sending && video.currentTime!==lastT){
         sending=true; lastT=video.currentTime;
-        _toMesh.send({image:video}).finally(()=>{ sending=false; });
+        _toReady.then(()=>_toMesh?.send({image:video})).catch(()=>{}).finally(()=>{ sending=false; });
       }
     }
     loop();
   })
-  .catch(e=>{ console.error('Try-on camera error:',e); if(loading) loading.textContent='Camera unavailable'; });
+  .catch(e=>{ console.error('Try-on camera error:',e); if (loading) loading.textContent='Camera unavailable'; });
 }
 
 function stopTryOn() {
   document.getElementById('tryon-modal').style.display='none';
-  if(_toRaf){cancelAnimationFrame(_toRaf); _toRaf=null;}
-  if(_toMesh){try{_toMesh.close();}catch(e){} _toMesh=null;}
-  if(_toStream){ if(_toOwnsStream) _toStream.getTracks().forEach(t=>t.stop()); _toStream=null; }
-  STATE.meshPaused=false;
+  if (_toRaf){ cancelAnimationFrame(_toRaf); _toRaf=null; }
+  if (_toMesh){
+    try{ _toMesh.close(); }catch(e){}
+    _toMesh=null;
+    setTimeout(prewarmMesh, 500);   // keep a warm tracker ready for next time
+  }
+  if (_toStream){ if (_toOwnsStream) _toStream.getTracks().forEach(t=>t.stop()); _toStream=null; }
+  _toShared=false; _toFace=false; _toSmooth=null;
   const video=document.getElementById('tryon-video');
-  if(video) video.srcObject=null;
-  _toLastLm=null;
+  if (video) video.srcObject=null;
   _toStepOnly=null;
-  const titleEl   = document.getElementById('tryon-modal-title');
-  const captionEl = document.getElementById('tryon-modal-caption');
-  if(titleEl)   titleEl.textContent   = '✦ Try It On';
-  if(captionEl) captionEl.innerHTML   = 'VIRTUAL TRY-ON &nbsp;·&nbsp; YOUR RECOMMENDED SHADES';
+  const titleEl=document.getElementById('tryon-modal-title');
+  const captionEl=document.getElementById('tryon-modal-caption');
+  if (titleEl)   titleEl.textContent='✦ Try It On';
+  if (captionEl) captionEl.innerHTML='VIRTUAL TRY-ON &nbsp;·&nbsp; YOUR RECOMMENDED SHADES';
   const loading=document.getElementById('tryon-loading');
-  if(loading) loading.style.display='flex';
+  if (loading) loading.style.display='flex';
 }
 
 function onTryOnResults(results) {
-  _toLastLm=results.multiFaceLandmarks?.[0]||null;
+  const lm=results.multiFaceLandmarks?.[0];
+  _toFace=!!lm;
+  if (!lm) return;
+  _toSmooth=smoothLandmarks(_toSmooth, lm, turnVisibility(lm), 'tryon');
+  glideFeed(_toGlide, _toSmooth);
 }
 
 // ── Virtual makeup renderer ──
