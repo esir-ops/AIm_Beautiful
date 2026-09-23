@@ -204,7 +204,7 @@ function currentY() {
 }
 function currentLabelText() {
   if (!S.multi) return S.names[T.recClass];
-  return `${STEP_NAMES[T.step]} - ${[...T.qLabels].map(l=>S.names[l]).join(' + ')}`;
+  return `${STEP_NAMES[T.step]} · ${[...T.qLabels].map(l=>S.names[l]).join(' + ')}`;
 }
 
 // Stores the crop's feature vector and its mirror image (free augmentation).

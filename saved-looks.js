@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════
-//  AI'm Beautiful — SAVED / FAVOURITE MAKEUP LOOKS
+//  AI'm Beautiful: SAVED / FAVOURITE MAKEUP LOOKS
 //
 //  Snapshots a finished makeup session (skin-tone analysis,
 //  recommended products/shades, completed steps, saved date)
@@ -50,7 +50,7 @@ function slReadAll() {
     const arr = raw ? JSON.parse(raw) : [];
     return Array.isArray(arr) ? arr : [];
   } catch (e) {
-    console.error('Saved looks: could not read storage —', e.message);
+    console.error('Saved looks: could not read storage:', e.message);
     return [];
   }
 }
@@ -65,7 +65,7 @@ function slWriteAll(list) {
     const quota = !!(e && (e.name === 'QuotaExceededError' ||
                            e.name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
                            e.code === 22 || e.code === 1014));
-    console.error('Saved looks: could not write storage —', e.message);
+    console.error('Saved looks: could not write storage:', e.message);
     return { ok:false, quota:quota };
   }
 }
@@ -145,7 +145,7 @@ function slBuildSnapshot(saveType, image) {
     };
   });
 
-  // Foundation stage (recommendation only — the system never verifies it).
+  // Foundation stage (recommendation only, the system never verifies it).
   // Run through the same single-best-match selector the Foundation screen uses,
   // otherwise the saved record would name a different brand than the one the
   // user was actually shown.
@@ -166,14 +166,14 @@ function slBuildSnapshot(saveType, image) {
     savedAtLabel: slFormatDate(now),
     skin: {
       toneKey:   toneKey,
-      toneLabel: (typeof formatTone === 'function' && toneKey) ? formatTone(toneKey) : '—',
-      level:     SL_TONE_LEVEL[parts[0]] || '—',
-      undertone: SL_TONE_UNDER[parts[1]] || '—'
+      toneLabel: (typeof formatTone === 'function' && toneKey) ? formatTone(toneKey) : 'Not set',
+      level:     SL_TONE_LEVEL[parts[0]] || 'Not set',
+      undertone: SL_TONE_UNDER[parts[1]] || 'Not set'
     },
     focal: {
       key:   STATE.focal || null,
       label: (STATE.focalData && STATE.focal && STATE.focalData[STATE.focal]
-               && STATE.focalData[STATE.focal].label) || STATE.focal || '—'
+               && STATE.focalData[STATE.focal].label) || STATE.focal || 'Not set'
     },
     // The makeup look chosen before the focal point. Stored as a flat copy so
     // the saved entry stays readable even if the preset file changes later.
@@ -194,7 +194,7 @@ function slBuildSnapshot(saveType, image) {
 function slCommitSave(saveType, image) {
   const snap = slBuildSnapshot(saveType, image);
   if (!snap) {
-    slToast('Nothing to save yet — complete the makeup guide first.', false);
+    slToast('Nothing to save yet. Finish the makeup guide first.', false);
     return false;
   }
   const list = slReadAll();
@@ -208,9 +208,9 @@ function slCommitSave(saveType, image) {
     return true;
   }
   slToast(res.quota
-    ? (image ? 'Storage full — delete an older saved look, or save recommendations only.'
-             : 'Storage full — delete an older saved look and try again.')
-    : 'Could not save — browser storage is blocked.', false);
+    ? (image ? 'Storage is full. Delete an older saved look, or save just the recommendations.'
+             : 'Storage is full. Delete an older saved look and try again.')
+    : "Couldn't save because browser storage is blocked.", false);
   return false;
 }
 
@@ -332,10 +332,10 @@ function startLookCapture() {
     if (btn) btn.disabled = false;
   })
   .catch(e => {
-    console.error('Saved looks: camera unavailable —', e.message);
+    console.error('Saved looks: camera unavailable:', e.message);
     if (loading) {
       loading.style.display = 'flex';
-      loading.textContent = 'Camera unavailable — go back and save recommendations only.';
+      loading.textContent = "Camera isn't available. Go back and save just the recommendations.";
     }
   });
 }
@@ -376,7 +376,7 @@ function captureLookPhoto() {
   const video = document.getElementById('sl-video');
   if (!video) return;
   const data = slCaptureFrame(video);
-  if (!data) { slToast('Camera is not ready yet — try again in a moment.', false); return; }
+  if (!data) { slToast("Camera isn't ready yet. Try again in a moment.", false); return; }
 
   SL_PENDING_IMAGE = data;
   const img = document.getElementById('sl-preview-img');
@@ -491,7 +491,7 @@ function renderSavedLooksList() {
 
 function slRow(label, value) {
   return '<div class="sl-row"><span class="sl-row-k">' + slEsc(label) +
-         '</span><strong class="sl-row-v">' + slEsc(value || '—') + '</strong></div>';
+         '</span><strong class="sl-row-v">' + slEsc(value || 'Not set') + '</strong></div>';
 }
 
 // ─────────────────────────────────────────
@@ -604,7 +604,7 @@ function slBrandRows(p, coverage) {
   return '' +
     '<div class="sl-prod-head">' +
       '<span class="sl-dot lg" style="background:' + slEsc(p.hex || '#555') + '"></span>' +
-      '<span class="sl-prod-brand">' + slEsc(p.brand || '—') + '</span>' +
+      '<span class="sl-prod-brand">' + slEsc(p.brand || 'Not set') + '</span>' +
     '</div>' +
     '<div class="sl-rows">' +
       (p.brand   ? slRow('Brand',      p.brand)   : '') +

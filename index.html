@@ -6,7 +6,7 @@
   <title>AI'm Beautiful</title>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700&family=Jost:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
-  <link rel="stylesheet" href="style.css?v=51"/>
+  <link rel="stylesheet" href="style.css?v=52"/>
 </head>
 <body>
 
@@ -195,16 +195,16 @@
         <i class="cc bl"></i><i class="cc br"></i>
       </div>
       <div id="light-warn" class="light-warn hide">
-        ⚠ Too dark - please turn on your LED strip
+        ⚠ Too dark. Please turn on your LED strip
       </div>
       <div id="glasses-warn" class="glasses-warn hide">
-        <span>Remove your glasses to continue — your face must be fully visible</span>
+        <span>Please remove your glasses so your whole face is visible</span>
       </div>
     </div>
     <div class="pill-row">
       <div class="pill" id="pill-face">Face: searching...</div>
-      <div class="pill" id="pill-lm">Landmarks: -</div>
-      <div class="pill" id="pill-tone">Tone: -</div>
+      <div class="pill" id="pill-lm">Landmarks: waiting</div>
+      <div class="pill" id="pill-tone">Tone: waiting</div>
     </div>
     <div class="page-actions">
       <button class="btn-primary" id="btn-detect" onclick="startDetection()" disabled>
@@ -251,7 +251,7 @@
   <div class="page-wrap page-wrap-wide">
     <div class="page-header">
       <h2 class="page-title">Choose Your <em>Variation</em></h2>
-      <p class="page-sub" id="style-sub">Three Soft &amp; Natural variations for your focal point - previewed on your own photo</p>
+      <p class="page-sub" id="style-sub">Three Soft &amp; Natural variations for your focal point, previewed on your own photo</p>
     </div>
     <div class="style-grid" id="style-grid"></div>
     <div class="ref-guide-block">
@@ -298,9 +298,9 @@
     </p>
     <div class="page-actions">
       <button class="btn-primary" onclick="confirmFoundation(true)">
-        ✓ &nbsp;Foundation Applied - Start Guide
+        ✓ &nbsp;Foundation Applied, Start Guide
       </button>
-      <button class="btn-ghost" onclick="confirmFoundation(false)">Skip - I'm not using foundation</button>
+      <button class="btn-ghost" onclick="confirmFoundation(false)">Skip, I'm not using foundation</button>
       <button class="btn-ghost" onclick="goTo('screen-style')">← Back to Style</button>
     </div>
   </div>
@@ -491,7 +491,7 @@
 <!-- TensorFlow.js - runs the MobileNetV2 application-quality classifier (Objective 9) -->
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js" crossorigin="anonymous"></script>
 <script src="face-crop.js?v=1"></script>
-<script src="app.js?v=51"></script>
-<script src="saved-looks.js?v=4"></script>
+<script src="app.js?v=56"></script>
+<script src="saved-looks.js?v=5"></script>
 </body>
 </html>

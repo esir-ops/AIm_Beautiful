@@ -375,21 +375,23 @@ body {
 
 .light-warn {
   position:absolute; bottom:0; left:0; right:0;
-  background:rgba(160,60,40,.9); color:#fff;
-  font-size:.78rem; text-align:center;
-  padding:.55rem; font-weight:500;
+  background:linear-gradient(90deg,rgba(58,0,30,.9),rgba(140,21,82,.9));
+  border-top:1px solid rgba(255,111,168,.6);
+  color:#fff; font-family:'Jost',sans-serif;
+  font-size:.8rem; text-align:center; letter-spacing:.02em;
+  padding:.6rem; font-weight:500;
 }
 .hide{ display:none !important; }
 
 /* glasses warning banner */
 .glasses-warn {
   position:absolute; top:0; left:0; right:0;
-  background:linear-gradient(90deg,rgba(80,40,0,.93),rgba(140,80,10,.93));
-  color:#ffe4b0; font-family:'Jost',sans-serif;
-  font-size:.76rem; font-weight:500; letter-spacing:.03em;
-  padding:.52rem .9rem; display:flex; align-items:center;
-  justify-content:space-between; gap:.5rem;
-  border-bottom:1px solid rgba(255,46,126,.35);
+  background:linear-gradient(90deg,rgba(58,0,30,.92),rgba(140,21,82,.92));
+  color:#fff; font-family:'Jost',sans-serif;
+  font-size:.8rem; font-weight:500; letter-spacing:.02em;
+  padding:.6rem .9rem; display:flex; align-items:center;
+  justify-content:center; gap:.5rem; text-align:center;
+  border-bottom:1px solid rgba(255,111,168,.6);
   animation: glassWarnFade .4s ease;
 }
 @keyframes glassWarnFade {
@@ -397,11 +399,11 @@ body {
   to  {opacity:1;transform:translateY(0);}
 }
 .glasses-warn-close {
-  background:none; border:none; color:rgba(255,220,160,.55);
+  background:none; border:none; color:rgba(255,201,225,.6);
   font-size:.9rem; cursor:pointer; line-height:1; padding:2px 5px;
   flex-shrink:0; transition:color .2s;
 }
-.glasses-warn-close:hover { color:#ffe4b0; }
+.glasses-warn-close:hover { color:#fff; }
 
 /* pills */
 .pill-row{ display:flex; gap:.5rem; flex-wrap:wrap; justify-content:center; }
@@ -477,7 +479,7 @@ body {
 
 .style-desc{ font-size:.72rem; color:var(--muted); line-height:1.5; }
 
-/* coverage meter — the real difference between variations */
+/* coverage meter: the real difference between variations */
 .style-coverage{ display:flex; align-items:center; gap:.5rem; }
 .cov-meter{ display:flex; gap:3px; }
 .cov-seg{
@@ -651,7 +653,7 @@ body {
   display:inline-block; width:fit-content;
 }
 
-/* ══ TRY-ON MODAL — portrait & responsive ══ */
+/* ══ TRY-ON MODAL: portrait & responsive ══ */
 .tryon-modal{
   display:none;               /* JS toggles to flex */
   position:fixed; inset:0; z-index:9999;

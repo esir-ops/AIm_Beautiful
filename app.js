@@ -60,7 +60,7 @@ const LIP_SAMPLE_BOT = [17,84,314,87,14,317];
 const LIP_SUBSTEP = [
   { label:'Top Lip',     badge:'Step 1 of 3', instruction:'Fill your TOP lip within the white outline. Start at the gold V-dot and stroke outward to each corner.' },
   { label:'Bottom Lip',  badge:'Step 2 of 3', instruction:'Top done! Now fill your BOTTOM lip. Start at the gold centre dot and stroke outward to each corner.' },
-  { label:'Final Check', badge:'Step 3 of 3', instruction:'Both lips filled - hold still while the camera checks your overall application.' },
+  { label:'Final Check', badge:'Step 3 of 3', instruction:'Both lips filled. Hold still while the camera checks your overall application.' },
 ];
 
 const BLUSH_CENTER_L = [205,50,116,123];
@@ -89,8 +89,14 @@ function syncOverlay(canvasEl, videoEl) {
   const rect = videoEl.getBoundingClientRect();
   const W = Math.round(rect.width)  || videoEl.videoWidth  || 640;
   const H = Math.round(rect.height) || videoEl.videoHeight || 480;
-  if (canvasEl.width  !== W) canvasEl.width  = W;
-  if (canvasEl.height !== H) canvasEl.height = H;
+  // Backing store at the screen's real pixel density, so text and guides stay
+  // sharp on scaled displays (125%/150% Windows, TVs). Callers keep drawing
+  // in CSS pixels; the transform maps them onto the bigger canvas.
+  const dpr = Math.min(window.devicePixelRatio || 1, 3);
+  const bw = Math.round(W*dpr), bh = Math.round(H*dpr);
+  if (canvasEl.width  !== bw) canvasEl.width  = bw;
+  if (canvasEl.height !== bh) canvasEl.height = bh;
+  canvasEl.getContext('2d').setTransform(dpr,0,0,dpr,0,0);
   const vW = videoEl.videoWidth  || 640;
   const vH = videoEl.videoHeight || 480;
   const scale = Math.max(W/vW, H/vH);
@@ -666,6 +672,19 @@ function tuneCamera(stream) {
   } catch(e){}
 }
 
+// Reusable offscreen canvases for per-frame pixel reads. Creating a fresh
+// canvas every frame churned memory, and the garbage collector's pauses
+// showed up as camera stutter. willReadFrequently keeps them on the CPU so
+// getImageData doesn't have to wait for the GPU.
+const _scratch={};
+function scratchCtx(key, w, h) {
+  let c=_scratch[key];
+  if (!c) c=_scratch[key]=document.createElement('canvas').getContext('2d',{willReadFrequently:true});
+  if (c.canvas.width!==w)  c.canvas.width=w;
+  if (c.canvas.height!==h) c.canvas.height=h;
+  return c;
+}
+
 // Feeds an already-playing <video> to FaceMesh, one new frame at a time.
 // This replaces MediaPipe's Camera helper: its start() opens a SECOND webcam
 // stream and swaps video.srcObject mid-play. That re-fired loadedmetadata
@@ -766,9 +785,9 @@ function startLightingCheck() {
       const cast=Math.max(rA,gA,bA)-(rA+gA+bA)/3;
       let msg='';
       document.body.classList.toggle('low-light', avgBr<60);
-      if      (avgBr<60)  msg='⚠ Too dark - move to a brighter area for accurate colour detection';
-      else if (avgBr>205) msg='⚠ Too bright / overexposed - step back or reduce glare';
-      else if (cast>30)   msg='⚠ Strong colour cast detected - use neutral white lighting';
+      if      (avgBr<60)  msg='⚠ Too dark. Move to a brighter area so colours are read accurately';
+      else if (avgBr>205) msg='⚠ Too bright. Step back or reduce the glare';
+      else if (cast>30)   msg='⚠ Strong colour cast. Use neutral white lighting';
       if (msg){warn.textContent=msg;warn.classList.remove('hide');}
       else    {warn.textContent='';warn.classList.add('hide');}
     } catch(e){}
@@ -776,11 +795,16 @@ function startLightingCheck() {
 }
 
 function checkStepLighting(video) {
+  // Room light doesn't change 30 times a second, and reading a video frame
+  // back costs ~10 ms, so check about 3 times a second.
+  const now=performance.now();
+  if (now-(STATE.stepLightAt||0)<300) return;
+  STATE.stepLightAt=now;
   try {
     let warn=document.getElementById('step-light-warn');
     if (!warn){
       warn=document.createElement('div'); warn.id='step-light-warn';
-      Object.assign(warn.style,{position:'absolute',top:'8px',left:'50%',transform:'translateX(-50%)',background:'rgba(180,60,0,0.82)',color:'#fff',fontSize:'12px',padding:'5px 14px',borderRadius:'20px',zIndex:'99',pointerEvents:'none',textAlign:'center',maxWidth:'90%',display:'none',whiteSpace:'nowrap'});
+      Object.assign(warn.style,{position:'absolute',top:'8px',left:'50%',transform:'translateX(-50%)',background:'rgba(58,0,30,0.85)',border:'1px solid rgba(255,111,168,0.8)',color:'#fff',fontSize:'12px',fontFamily:"'Jost',sans-serif",fontWeight:'500',padding:'5px 14px',borderRadius:'20px',zIndex:'99',pointerEvents:'none',textAlign:'center',maxWidth:'90%',display:'none',whiteSpace:'nowrap'});
       const wrap=document.getElementById('step-overlay')?.parentElement||document.getElementById('step-video')?.parentElement||document.body;
       wrap.style.position=wrap.style.position||'relative';
       wrap.appendChild(warn);
@@ -796,9 +820,9 @@ function checkStepLighting(video) {
     const avgBr=br/N, cast=Math.max(rS/N,gS/N,bS/N)-(rS/N+gS/N+bS/N)/3;
     let msg='';
     document.body.classList.toggle('low-light', avgBr<60);
-    if      (avgBr<60)  msg='⚠ Too dark - better lighting helps the AI detect your makeup accurately';
-    else if (avgBr>205) msg='⚠ Too bright - reduce glare so colours are detected correctly';
-    else if (cast>30)   msg='⚠ Colour cast - switch to neutral white light for best results';
+    if      (avgBr<60)  msg='⚠ Too dark. Better lighting helps the AI read your makeup accurately';
+    else if (avgBr>205) msg='⚠ Too bright. Reduce the glare so colours are read correctly';
+    else if (cast>30)   msg='⚠ Colour cast. Switch to neutral white light for the best results';
     warn.textContent=msg; warn.style.display=msg?'block':'none';
   } catch(e){}
 }
@@ -827,6 +851,17 @@ const TM_MODELS = {
 };
 const _tm = {};   // name → { state:'idle|loading|ready|absent', model, labels }
 
+// Warms a model through the exact steps the camera uses (canvas -> pixels ->
+// scale -> predict -> async read). The old tf.zeros() warm-up skipped the
+// image-conversion steps, so their ~0.5 s GPU setup landed on the first
+// camera frame instead and froze the capture screen.
+async function warmModel(model, size) {
+  const c=document.createElement('canvas'); c.width=size; c.height=size;
+  const out=tf.tidy(()=>model.predict(
+    tf.browser.fromPixels(c).toFloat().div(127.5).sub(1).expandDims(0)));
+  try { await out.data(); } finally { out.dispose(); }
+}
+
 async function loadTMModel(name) {
   const cfg=TM_MODELS[name];
   if (!cfg) return 'absent';
@@ -838,7 +873,7 @@ async function loadTMModel(name) {
   // was recorded through this mirror's own camera and glass.
   try {
     slot.model=await tf.loadLayersModel(localModelKey(name));
-    tf.tidy(()=>slot.model.predict(tf.zeros([1,cfg.input,cfg.input,3])));
+    await warmModel(slot.model, cfg.input);
     try { slot.labels=JSON.parse(localStorage.getItem(localLabelsKey(name))||'null'); } catch(_){ slot.labels=null; }
     slot.state='ready';
     console.log(`[tm:${name}] model ready (trained on this device)`, slot.labels||'');
@@ -846,7 +881,7 @@ async function loadTMModel(name) {
   } catch(_){ slot.model=null; }
   try {
     slot.model=await tf.loadLayersModel(cfg.url);
-    tf.tidy(()=>slot.model.predict(tf.zeros([1,cfg.input,cfg.input,3])));  // warm-up
+    await warmModel(slot.model, cfg.input);
     // Teachable Machine writes its class names into metadata.json beside the model.
     try {
       const metaUrl=cfg.url.replace(/model\.json$/,'metadata.json');
@@ -857,7 +892,7 @@ async function loadTMModel(name) {
     console.log(`[tm:${name}] model ready`, slot.labels||'(labels from metadata unavailable)');
   } catch(e){
     slot.model=null; slot.state='absent';
-    console.warn(`[tm:${name}] no model at ${cfg.url} - using heuristic fallback. (${e.message})`);
+    console.warn(`[tm:${name}] no model at ${cfg.url}, using heuristic fallback. (${e.message})`);
   }
   return slot.state;
 }
@@ -867,21 +902,40 @@ function initTMModels(){ Object.keys(TM_MODELS).forEach(loadTMModel); }
 
 // Runs a loaded classifier on a face-region crop. Returns the positive-class
 // probability in [0,1], or null when no model is installed for this slot.
+//
+// The model runs at most every TM_INTERVAL ms per slot and never blocks a
+// frame: the result is read back from the GPU asynchronously, and the latest
+// answer is returned meanwhile. The old synchronous dataSync() made the camera
+// loop wait for the GPU on every call, which is what froze the capture screen
+// once the trained models were installed.
+const TM_INTERVAL = 120;
 function classifyTM(name, image, lm) {
   const cfg=TM_MODELS[name];
   const slot=_tm[name];
   if (!cfg || !slot || slot.state!=='ready' || !slot.model) return null;
-  try {
-    // Padded box around the whole face (face-crop.js - the trainer uses the same crop).
-    const crop=faceCropCanvas(image, lm, cfg.input);
-    if (!crop) return null;
-    const probs=tf.tidy(()=>{
-      const t=tf.browser.fromPixels(crop).toFloat().div(127.5).sub(1).expandDims(0);
-      const out=slot.model.predict(t);
-      return out.dataSync();
-    });
-    return probs[positiveLabelIndex(slot.labels, cfg.positive)] ?? null;
-  } catch(e){ console.warn(`[tm:${name}] inference failed:`, e.message); return null; }
+  const now=performance.now();
+  if (!slot.pending && now-(slot.lastRun||0)>=TM_INTERVAL){
+    try {
+      // Padded box around the whole face (face-crop.js - the trainer uses the same crop).
+      const crop=faceCropCanvas(image, lm, cfg.input, slot.crop);
+      if (crop){
+        slot.crop=crop; slot.lastRun=now; slot.pending=true;
+        const out=tf.tidy(()=>slot.model.predict(
+          tf.browser.fromPixels(crop).toFloat().div(127.5).sub(1).expandDims(0)));
+        out.data().then(p=>{
+          slot.prob=p[positiveLabelIndex(slot.labels, cfg.positive)] ?? null;
+          slot.probAt=performance.now();
+        }).catch(e=>console.warn(`[tm:${name}] inference failed:`, e.message))
+          .finally(()=>{ out.dispose(); slot.pending=false; });
+      }
+    } catch(e){ slot.pending=false; console.warn(`[tm:${name}] inference failed:`, e.message); }
+  }
+  // undefined = the model is installed but its answer is still on its way.
+  // Callers then wait rather than falling back to the pixel rules, which would
+  // give a different answer for one frame. An answer older than a second
+  // belongs to a different moment, unless a fresh one is already coming.
+  if (slot.prob==null) return undefined;
+  return (now-slot.probAt<1000 || slot.pending) ? slot.prob : undefined;
 }
 
 // ─────────────────────────────────────────
@@ -893,9 +947,18 @@ function classifyTM(name, image, lm) {
 // ─────────────────────────────────────────
 function checkAccessories(image, lm) {
   try {
+    // ── Glasses: trained model takes precedence when installed ──
+    // Asked first, so the pixel copy below (~10 ms) is only made when the
+    // heuristic actually needs it.
+    const glassesProb=classifyTM('glasses', image, lm);
+    if (glassesProb!==null) return glassesProb>=0.6 ? ['glasses'] : [];   // undefined: answer pending
+
     const vW=image.width||640, vH=image.height||480;
-    const tmp=document.createElement('canvas'); tmp.width=vW; tmp.height=vH;
-    const tctx=tmp.getContext('2d',{willReadFrequently:true}); tctx.drawImage(image,0,0,vW,vH);
+    const tctx=scratchCtx('frame', vW, vH); tctx.drawImage(image,0,0,vW,vH);
+    // One read of the whole frame, then patches are picked out of it. Reading
+    // each small patch separately was ~25 reads per check, and on some
+    // machines every read is a slow round trip.
+    const all=tctx.getImageData(0,0,vW,vH).data;
     // Patch average around each landmark - a single pixel is far too noisy to
     // decide on. Radius scales with face size so it works at any distance.
     const rad=Math.max(2, Math.round(Math.abs(lm[454].x-lm[234].x)*vW*0.012));
@@ -905,10 +968,10 @@ function checkAccessories(image, lm) {
         if(i>=lm.length) return;
         const cx=Math.round(lm[i].x*vW), cy=Math.round(lm[i].y*vH);
         const x0=Math.max(0,cx-rad), y0=Math.max(0,cy-rad);
-        const w=Math.min(vW,cx+rad+1)-x0, h=Math.min(vH,cy+rad+1)-y0;
-        if(w<=0||h<=0) return;
-        const d=tctx.getImageData(x0,y0,w,h).data;
-        for(let p=0;p<d.length;p+=4){r+=d[p];g+=d[p+1];b+=d[p+2];n++;}
+        const x1=Math.min(vW,cx+rad+1), y1=Math.min(vH,cy+rad+1);
+        for(let y=y0;y<y1;y++) for(let x=x0;x<x1;x++){
+          const p=(y*vW+x)*4; r+=all[p]; g+=all[p+1]; b+=all[p+2]; n++;
+        }
       });
       return n>0?{r:r/n,g:g/n,b:b/n,br:function(){return this.r*.299+this.g*.587+this.b*.114;}}:null;
     }
@@ -916,19 +979,12 @@ function checkAccessories(image, lm) {
     const fhBr=fh.br();
     const found=[];
 
-    // ── Glasses: trained model takes precedence when installed ──
-    const glassesProb=classifyTM('glasses', image, lm);
-    if (glassesProb!=null){
-      if (glassesProb>=0.6) found.push('glasses');
-      // Model handles glasses; fall through only for the mask heuristic below.
-    } else {
-      // ── Pixel-heuristic fallback ──
-      // Only meaningful on a reasonably frontal face. When the head turns, the
-      // temple sample points slide onto HAIR - dark hair then reads as several
-      // "dark frame" signals at once, which caused earlier false alarms.
-      if (faceTurnOffset(lm) <= TURN_OK_ACCESSORY)
-        runGlassesHeuristic(px, fhBr, found);
-    }
+    // ── Pixel-heuristic fallback (no trained model installed) ──
+    // Only meaningful on a reasonably frontal face. When the head turns, the
+    // temple sample points slide onto HAIR - dark hair then reads as several
+    // "dark frame" signals at once, which caused earlier false alarms.
+    if (faceTurnOffset(lm) <= TURN_OK_ACCESSORY)
+      runGlassesHeuristic(px, fhBr, found);
 
     // NOTE: face masks are handled by occlusionCheck (colour-balance based,
     // lighting-tolerant) which reliably blocks the Capture button. The old
@@ -1085,7 +1141,10 @@ function onDetectResults(results) {
     // error grows as the head turns - they still follow the face.
     ctx.globalAlpha = turnVisibility(lm);
     ctx.fillStyle='rgba(201,149,106,0.22)';
-    dlm.forEach(pt=>{ctx.beginPath();ctx.arc(pt.x*effW,pt.y*effH,1.4,0,Math.PI*2);ctx.fill();});
+    // One path for all 468 dots - a fill per dot was hundreds of draw calls a frame.
+    ctx.beginPath();
+    dlm.forEach(pt=>{const x=pt.x*effW, y=pt.y*effH; ctx.moveTo(x+1.4,y); ctx.arc(x,y,1.4,0,Math.PI*2);});
+    ctx.fill();
     drawLips   (ctx,dlm,effW,effH,'rgba(220,130,120,0.78)','rgba(220,130,120,0.18)',2,false);
     drawBrows  (ctx,dlm,effW,effH,'rgba(180,130,80,0.7)','rgba(160,110,60,0.15)',3);
     drawBlush  (ctx,dlm,effW,effH,'rgba(230,150,140,0.55)','rgba(230,150,140,0.10)',2);
@@ -1104,7 +1163,7 @@ function onDetectResults(results) {
         ? checkAccessories(results.image, lm) : (STATE.accActive||[]);
       // Two-frame streaks in both directions so a single noisy frame can't
       // set OR clear the state. Poll interval is 4 frames (~130ms), so
-      // detection latency and clearance latency are both ~260ms — fast
+      // detection latency and clearance latency are both ~260ms, fast
       // enough to feel responsive, slow enough to filter one-frame noise.
       // Single-frame confirmation (pos>=1) was tried last round and was
       // exactly what caused the current false-positive complaint.
@@ -1116,7 +1175,7 @@ function onDetectResults(results) {
         if(STATE.accNegStreak>=2) STATE.accActive=[];
       }
       if(STATE.accActive && STATE.accActive.includes('glasses')){
-        showGlassesWarn('Remove your glasses to continue — your face must be fully visible');
+        showGlassesWarn('Please remove your glasses so your whole face is visible');
       } else {
         const el=document.getElementById('glasses-warn');
         if(el&&!el.classList.contains('hide')) el.classList.add('hide');
@@ -1126,39 +1185,63 @@ function onDetectResults(results) {
     // ── Guided capture: never photograph the user unannounced ──
     if (!STATE.toneKey) runCaptureCountdown(ctx, results.image, lm, W, H, ox, oy);
   } else {
-    pFace.textContent='Face not found - step closer'; pFace.classList.remove('ok');
-    pLM.textContent='Landmarks: -'; pLM.classList.remove('ok');
-    resetCountdown('Face not detected - centre yourself in the frame');
+    pFace.textContent='Face not found. Step closer'; pFace.classList.remove('ok');
+    pLM.textContent='Landmarks: waiting'; pLM.classList.remove('ok');
+    resetCountdown('Face not detected. Centre yourself in the frame');
   }
 }
 
-// Low-pass filter for the detection-screen overlay. Same adaptive scheme as
-// the step screen: follows real movement, suppresses per-frame jitter, and
-// smooths harder the further the head is turned.
-// Per-point deadband: movement below this (in normalised units) is treated as
-// sensor noise and ignored outright. This is what actually stops the visible
-// shimmer - damping alone still lets every point wobble a little each frame.
-const LM_DEADBAND = 0.0016;
+// Landmark filter shared by the detection and step overlays ("one euro"
+// style). How much it smooths depends on how fast the face is moving: when
+// the face is still it averages heavily so the guides don't shimmer, and as
+// soon as the face moves it opens up so the guides keep up with almost no
+// lag. The old filter only ever moved 8-34% of the way per frame, which is
+// why the guides trailed behind the face. It is time-based, so it behaves
+// the same at 15 fps on a slow laptop as at 30 fps.
+const LM_MIN_CUTOFF = 0.5;     // Hz while still - lower is steadier
+const LM_BETA       = 25;      // how quickly it opens up with speed - higher is less lag
+const LM_D_CUTOFF   = 3;       // Hz, smoothing of the speed estimate itself
+const LM_DEADBAND   = 0.0016;  // about 1 px of noise ignored while the face is still
+const LM_STILL      = 0.06;    // face speed (frame widths / s) below which it counts as still
+const LM_ANCHORS    = [1,4,6,168,10,152,234,454,33,263,133,362,61,291,199,9];
+const _lmFilt = {};
 
-function smoothLandmarks(prev, lm, turnVis) {
-  if (!prev || prev.length!==lm.length) return lm.map(p=>({x:p.x,y:p.y}));
-  let maxDelta=0;
-  [1,234,454,10,152].forEach(i=>{
-    const dx=lm[i].x-prev[i].x, dy=lm[i].y-prev[i].y;
-    maxDelta=Math.max(maxDelta, Math.sqrt(dx*dx+dy*dy));
-  });
-  // Gentle base response, damped further the more the head is turned.
-  let A = maxDelta>0.050 ? 0.34 : maxDelta>0.020 ? 0.24 : maxDelta>0.008 ? 0.15 : 0.08;
-  A *= 0.40 + 0.60*turnVis;
+function lmAlpha(cutoff, dt) {
+  const tau=1/(2*Math.PI*cutoff);
+  return 1/(1+tau/dt);
+}
+
+function smoothLandmarks(prev, lm, turnVis, key) {
+  const now=performance.now();
+  const f=_lmFilt[key]||(_lmFilt[key]={t:now, v:0});
+  if (!prev || prev.length!==lm.length){
+    f.t=now; f.v=0;
+    return lm.map(p=>({x:p.x,y:p.y}));
+  }
+  const dt=Math.min(0.1, Math.max(0.005, (now-f.t)/1000));
+  f.t=now;
+  // Face speed from how far the centre of the stable points (nose, cheeks,
+  // forehead, chin, eye corners, mouth corners) moved. Averaging them first
+  // cancels per-point sensor noise, so a still face reads as still. Turning
+  // is caught by the nose moving against the cheeks.
+  let cx=0, cy=0, turn=0;
+  LM_ANCHORS.forEach(i=>{ cx+=lm[i].x-prev[i].x; cy+=lm[i].y-prev[i].y; });
+  cx/=LM_ANCHORS.length; cy/=LM_ANCHORS.length;
+  turn=Math.abs((lm[1].x-prev[1].x) - ((lm[234].x-prev[234].x)+(lm[454].x-prev[454].x))/2);
+  const d=Math.max(Math.hypot(cx,cy), turn*0.5);
+  f.v += lmAlpha(LM_D_CUTOFF, dt)*(d/dt - f.v);
+  // A turned head has more depth error, so keep a little extra damping there.
+  const A=lmAlpha(LM_MIN_CUTOFF + LM_BETA*f.v, dt) * (0.55 + 0.45*turnVis);
+  const still=f.v<LM_STILL;
   return prev.map((s,i)=>{
     const dx=lm[i].x-s.x, dy=lm[i].y-s.y;
-    if (Math.abs(dx)<LM_DEADBAND && Math.abs(dy)<LM_DEADBAND) return s;  // hold still
+    if (still && Math.abs(dx)<LM_DEADBAND && Math.abs(dy)<LM_DEADBAND) return s;  // hold still
     return {x:s.x+A*dx, y:s.y+A*dy};
   });
 }
 
 function smoothDetectLm(lm) {
-  STATE.detectLm=smoothLandmarks(STATE.detectLm, lm, turnVisibility(lm));
+  STATE.detectLm=smoothLandmarks(STATE.detectLm, lm, turnVisibility(lm), 'detect');
   return STATE.detectLm;
 }
 
@@ -1179,7 +1262,7 @@ function occlusionCheck(image, lm) {
   try {
     // 0) Trained model takes precedence when installed.
     const occProb=classifyTM('occlusion', image, lm);
-    if (occProb!=null)
+    if (occProb!==null)   // undefined (answer pending) reads as clear for that frame
       return occProb>=0.6
         ? {occluded:true, reason:'Keep your whole face visible'}
         : {occluded:false, reason:''};
@@ -1195,9 +1278,9 @@ function occlusionCheck(image, lm) {
     }
 
     const vW=image.width||640, vH=image.height||480;
-    const c=document.createElement('canvas'); c.width=vW; c.height=vH;
-    const cx=c.getContext('2d',{willReadFrequently:true});
+    const cx=scratchCtx('frame', vW, vH);
     cx.drawImage(image,0,0,vW,vH);
+    const all=cx.getImageData(0,0,vW,vH).data;   // one read, see checkAccessories
     const rad=Math.max(2, Math.round(Math.abs(lm[454].x-lm[234].x)*vW*0.02));
     const patch=(idxs)=>{
       let r=0,g=0,b=0,n=0;
@@ -1205,10 +1288,10 @@ function occlusionCheck(image, lm) {
         const p=lm[i]; if(!p) return;
         const px=Math.round(p.x*vW), py=Math.round(p.y*vH);
         const x0=Math.max(0,px-rad), y0=Math.max(0,py-rad);
-        const w=Math.min(vW,px+rad+1)-x0, h=Math.min(vH,py+rad+1)-y0;
-        if(w<=0||h<=0) return;
-        const d=cx.getImageData(x0,y0,w,h).data;
-        for(let q=0;q<d.length;q+=4){r+=d[q];g+=d[q+1];b+=d[q+2];n++;}
+        const x1=Math.min(vW,px+rad+1), y1=Math.min(vH,py+rad+1);
+        for(let y=y0;y<y1;y++) for(let x=x0;x<x1;x++){
+          const q=(y*vW+x)*4; r+=all[q]; g+=all[q+1]; b+=all[q+2]; n++;
+        }
       });
       return n>0?{r:r/n,g:g/n,b:b/n}:null;
     };
@@ -1243,7 +1326,7 @@ function occlusionCheck(image, lm) {
     // far higher. 0.14 leaves a wide margin so normal lighting never trips it.
     if (worst>0.14){
       const where={forehead:'forehead',lcheek:'cheek',rcheek:'cheek',nose:'nose',chin:'chin'}[worstName]||'face';
-      return {occluded:true, reason:`Uncover your ${where} - keep your whole face visible`};
+      return {occluded:true, reason:`Uncover your ${where} so your whole face is visible`};
     }
     return {occluded:false, reason:''};
   } catch(e){ return {occluded:false, reason:''}; }
@@ -1310,9 +1393,9 @@ function expressionCheck(image, lm) {
     : raw;
   if (EXPR_DEBUG) console.debug('[expr]', Object.entries(m).map(([k,v])=>`${k} ${v.toFixed(2)}`).join(' · '));
   const eyeMin=Math.min(m.eyeL,m.eyeR), eyeMax=Math.max(m.eyeL,m.eyeR);
-  if (m.mouthOpen  > EXPR.mouthOpen)   return {ok:false, reason:'Close your mouth - keep a soft, natural smile'};
-  if (m.mouthWide  > EXPR.mouthWide)   return {ok:false, reason:'Relax your smile a little - keep it natural'};
-  if (m.mouthWide  < EXPR.mouthPucker) return {ok:false, reason:'Relax your lips - no pouting'};
+  if (m.mouthOpen  > EXPR.mouthOpen)   return {ok:false, reason:'Close your mouth and keep a soft, natural smile'};
+  if (m.mouthWide  > EXPR.mouthWide)   return {ok:false, reason:'Relax your smile a little'};
+  if (m.mouthWide  < EXPR.mouthPucker) return {ok:false, reason:'Relax your lips, no pouting'};
   if (m.mouthTilt  > EXPR.mouthTilt || m.mouthShift > EXPR.mouthShift)
                                        return {ok:false, reason:'Keep your smile even and relaxed'};
   if (eyeMax       < EXPR.eyeClosed)   return {ok:false, reason:'Keep both eyes open'};
@@ -1364,18 +1447,22 @@ function assessReadiness(image, lm) {
   const occ=occlusionCheck(image, lm);
   if (occ.occluded) return {ok:false, reason:occ.reason};
 
-  // Lighting must be usable or the tone reading is worthless
+  // Lighting must be usable or the tone reading is worthless. Measured about
+  // 4 times a second - reading the frame back every frame stalled the camera.
   try {
-    const vW=image.width||640, vH=image.height||480;
-    const t=document.createElement('canvas'); t.width=48; t.height=36;
-    const tx=t.getContext('2d',{willReadFrequently:true});
-    tx.drawImage(image,0,0,48,36);
-    const d=tx.getImageData(0,0,48,36).data;
-    let br=0; const N=d.length/4;
-    for(let i=0;i<d.length;i+=4) br+=d[i]*.299+d[i+1]*.587+d[i+2]*.114;
-    const avg=br/N;
-    if (avg<55)  return {ok:false, reason:'Too dark - turn on your LED strip'};
-    if (avg>212) return {ok:false, reason:'Too bright - reduce glare'};
+    const now=performance.now();
+    if (now-(STATE.readyLightAt||0)>=250){
+      STATE.readyLightAt=now;
+      const tx=scratchCtx('light', 48, 36);
+      tx.drawImage(image,0,0,48,36);
+      const d=tx.getImageData(0,0,48,36).data;
+      let br=0; const N=d.length/4;
+      for(let i=0;i<d.length;i+=4) br+=d[i]*.299+d[i+1]*.587+d[i+2]*.114;
+      STATE.readyLight=br/N;
+    }
+    const avg=STATE.readyLight;
+    if (avg<55)  return {ok:false, reason:'Too dark. Turn on your LED strip'};
+    if (avg>212) return {ok:false, reason:'Too bright. Reduce the glare'};
   } catch(e){}
 
   // Face COVERINGS (mask, hand, object, hair) are caught by occlusionCheck.
@@ -1386,7 +1473,7 @@ function assessReadiness(image, lm) {
   // positive streak), so false positives on a bare face should be rare - and
   // the user explicitly wants no capture path while glasses are detected.
   if (STATE.accActive && STATE.accActive.includes('glasses')){
-    return {ok:false, reason:'Remove your glasses to continue - your face must be fully visible'};
+    return {ok:false, reason:'Please remove your glasses so your whole face is visible'};
   }
   return {ok:true, reason:''};
 }
@@ -1437,7 +1524,7 @@ function runCaptureCountdown(ctx, image, lm, W, H, ox, oy) {
       // Lost the pose mid-count - cancel, take no photo.
       STATE.countdownStart=0;
       if (btn){ btn.disabled=true; btn.textContent='Capture Photo'; }
-      if (status){ status.className='capture-status'; status.textContent=`Cancelled - ${r.reason}`; }
+      if (status){ status.className='capture-status'; status.textContent=`Cancelled. ${r.reason}`; }
       drawCaptureHint(ctx, W, H, ox, oy, r.reason, null);
       return;
     }
@@ -1455,7 +1542,7 @@ function runCaptureCountdown(ctx, image, lm, W, H, ox, oy) {
     const tone=detectToneFromImage(image, lm, W, H);
     if (!tone){
       STATE.countdownStart=0;
-      if (status) status.textContent='Could not read your skin tone - try again';
+      if (status) status.textContent='Could not read your skin tone. Please try again';
       return;
     }
     STATE.toneKey=tone;
@@ -1497,9 +1584,18 @@ function drawMirroredText(ctx, text, cx, cy, font, fill, boxed) {
   ctx.font=font;
   ctx.textAlign='center'; ctx.textBaseline='middle';
   if (boxed){
-    const tw=ctx.measureText(text).width;
-    ctx.fillStyle='rgba(0,0,0,0.58)';
-    ctx.fillRect(-tw/2-14, -16, tw+28, 32);
+    // Rounded berry pill with a thin pink edge, matching the app's buttons.
+    const px=parseFloat((font.match(/(\d+(?:\.\d+)?)px/)||[])[1])||15;
+    const tw=ctx.measureText(text).width, padX=px*1.1, h=px*2.3;
+    const x=-tw/2-padX, y=-h/2, w=tw+padX*2;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(x, y, w, h, h/2); else ctx.rect(x, y, w, h);
+    ctx.shadowColor='rgba(58,0,30,0.35)'; ctx.shadowBlur=14; ctx.shadowOffsetY=3;
+    ctx.fillStyle='rgba(58,0,30,0.82)';
+    ctx.fill();
+    ctx.shadowColor='transparent';
+    ctx.lineWidth=1.5; ctx.strokeStyle='rgba(255,111,168,0.85)';
+    ctx.stroke();
   } else {
     ctx.lineWidth=6; ctx.strokeStyle='rgba(0,0,0,0.55)';
     ctx.strokeText(text, 0, 0);
@@ -1540,17 +1636,17 @@ function drawCaptureHint(ctx, W, H, ox, oy, message, count) {
       // Fit-to-width: shrink the font so the boxed background stays inside the
       // canvas on narrow (phone) overlays, same pattern used by the Face-forward
       // hint on the step screen.
-      const maxW = Math.max(80, W - 28);
+      const maxW = Math.max(80, W - 28 - 2.2*17);   // minus the pill's side padding
       ctx.save();
-      let px = 15;
-      ctx.font = `600 ${px}px Jost, sans-serif`;
+      let px = 17;
+      ctx.font = `500 ${px}px Jost, sans-serif`;
       let text = message;
       if (ctx.measureText(text).width > maxW){
-        px = Math.max(10, Math.floor(15 * maxW / ctx.measureText(text).width));
+        px = Math.max(10, Math.floor(17 * maxW / ctx.measureText(text).width));
       }
       ctx.restore();
       drawMirroredText(ctx, text, cx, cy,
-        `600 ${px}px Jost, sans-serif`, 'rgba(255,240,225,0.95)', true);
+        `500 ${px}px Jost, sans-serif`, '#ffffff', true);
     }
   }
   ctx.restore();
@@ -2217,7 +2313,7 @@ function showShades() {
     const lookLabel=currentLookLabel();
     // "School Look" already ends in the word; the other three need it added.
     const lookPhrase=lookLabel ? (/look$/i.test(lookLabel)?lookLabel:`${lookLabel} look`) : '';
-    why.textContent='One best match per feature - selected from Detail Cosmetics, '
+    why.textContent='One best match per feature, picked from Detail Cosmetics, '
       +`Squad Cosmetics and Chuchu Beauty for your ${formatTone(toneKey)} skin tone`
       +(lookPhrase?` and your ${lookPhrase}`:'')+'.';
   }
@@ -2411,7 +2507,7 @@ function renderStyleScreen() {
   const focalStep={lips:'lips',eyebrows:'eyebrows',cheeks:'blush',contour:'contour'}[STATE.focal]||'lips';
 
   // Shades are identical across variations (they use the detected tone's
-  // recommendation) — so this is the same for every card and reassures the
+  // recommendation), so this is the same for every card and reassures the
   // user their tried-on shades won't change.
   const resolved=selectBestSet(resolveShades(STATE.toneKey||'medium_warm', null))||{};
   const swatches=STEPS.map(step=>{
@@ -2470,7 +2566,7 @@ function selectStyle(id) {
   if (canvas) canvas.classList.toggle('ready', painted);
   if (empty)  empty.style.display=painted?'none':'';
   if (empty && !painted){
-    empty.textContent='Reference guide unavailable - your captured photo could not be read. '
+    empty.textContent='Reference guide unavailable. Your captured photo could not be read. '
       +'You can still continue; the live AR guide is unaffected.';
   }
 
@@ -2544,7 +2640,7 @@ function renderStep(index) {
   const dr=document.getElementById('step-dot-row'); dr.innerHTML='';
   STEPS.forEach((_,i)=>{const d=document.createElement('div');d.className='step-dot'+(i<index?' done':i===index?' active':'');dr.appendChild(d);});
 
-  // Coverage guidance from the chosen variation — tells the user HOW MUCH of
+  // Coverage guidance from the chosen variation. Tells the user HOW MUCH of
   // the same product to apply for the look they picked.
   const covNote = coverageNote(step);
   // Finish guidance from the selected makeup look, combined with the focal point.
@@ -2655,7 +2751,7 @@ function onStepResults(results) {
     headDelta = maxDelta;
     // Same filter as the detection screen: gentle response, heavier damping
     // when turned, plus a deadband that ignores pure sensor noise.
-    STATE.smoothedLm=smoothLandmarks(STATE.smoothedLm, lm, turnVisibility(lm));
+    STATE.smoothedLm=smoothLandmarks(STATE.smoothedLm, lm, turnVisibility(lm), 'step');
   }
   const dlm=STATE.smoothedLm;
 
@@ -2730,19 +2826,19 @@ function onStepResults(results) {
     ctx.globalAlpha = 1;
     const full  = 'Face forward for the most accurate guide';
     const short = 'Face forward';
-    const maxW  = Math.max(80, W - 28);            // 14 px inset each side
+    const maxW  = Math.max(80, W - 28 - 2.2*15);   // 14 px inset each side, minus pill padding
     ctx.save();
-    let px = 13;
-    ctx.font = `600 ${px}px Jost, sans-serif`;
+    let px = 15;
+    ctx.font = `500 ${px}px Jost, sans-serif`;
     let text = full;
     if (ctx.measureText(full).width > maxW){
-      px = Math.max(10, Math.floor(13 * maxW / ctx.measureText(full).width));
-      ctx.font = `600 ${px}px Jost, sans-serif`;
+      px = Math.max(10, Math.floor(15 * maxW / ctx.measureText(full).width));
+      ctx.font = `500 ${px}px Jost, sans-serif`;
       if (ctx.measureText(full).width > maxW) text = short;
     }
     ctx.restore();
     drawMirroredText(ctx, text,
-      W/2+ox, H*0.08+oy, `600 ${px}px Jost, sans-serif`, 'rgba(255,255,255,0.80)', true);
+      W/2+ox, H*0.08+oy, `500 ${px}px Jost, sans-serif`, '#ffffff', true);
   }
   ctx.restore();
   checkStepLighting(video);
@@ -2779,27 +2875,27 @@ let _qState = 'idle';   // idle | loading | ready | absent
 async function initQualityModel() {
   if (_qState!=='idle') return _qState;
   if (typeof tf==='undefined'){
-    console.warn('[quality] TensorFlow.js not loaded - using analytical fallback.');
+    console.warn('[quality] TensorFlow.js not loaded, using analytical fallback.');
     _qState='absent'; return _qState;
   }
   _qState='loading';
   // A model trained on this device with trainer.html?slot=quality comes first.
   try {
     _qModel=await tf.loadLayersModel(localModelKey('quality'));
-    tf.tidy(()=>_qModel.predict(tf.zeros([1,QUALITY_INPUT,QUALITY_INPUT,3])));
+    await warmModel(_qModel, QUALITY_INPUT);
     _qState='ready';
     console.log('[quality] classifier ready (trained on this device).');
     return _qState;
   } catch(_){ _qModel=null; }
   try {
     _qModel=await tf.loadLayersModel(QUALITY_MODEL_URL);
-    tf.tidy(()=>_qModel.predict(tf.zeros([1,QUALITY_INPUT,QUALITY_INPUT,3])));  // warm-up
+    await warmModel(_qModel, QUALITY_INPUT);
     _qState='ready';
     console.log('[quality] MobileNetV2 classifier ready.');
   } catch(e) {
     _qModel=null; _qState='absent';
     console.warn('[quality] No trained model at '+QUALITY_MODEL_URL+
-                 ' - using analytical fallback. ('+e.message+')');
+                 ', using analytical fallback. ('+e.message+')');
   }
   return _qState;
 }
@@ -3024,12 +3120,12 @@ function qualityMessage(step, q) {
   if (q.passed) return null;
   const label=(STEP_LABELS[step]||step).toLowerCase();
   const parts=[];
-  if (!q.verdicts.smudge.ok) parts.push(`colour has spread past the guide - tidy the edges of your ${label}`);
-  if (!q.verdicts.uneven.ok) parts.push('coverage is patchy - blend until the colour reads the same throughout');
+  if (!q.verdicts.smudge.ok) parts.push(`colour has spread past the guide, so tidy the edges of your ${label}`);
+  if (!q.verdicts.uneven.ok) parts.push('coverage is patchy, so blend until the colour looks the same all over');
   if (!q.verdicts.amount.ok){
     const t=q.verdicts.amount.text;
     if (t.includes('Too little'))      parts.push('build up a little more product');
-    else if (t.includes('Too much'))   parts.push('sheer it out - there is more product than the look needs');
+    else if (t.includes('Too much'))   parts.push('sheer it out, there is more product than the look needs');
     else                               parts.push('adjust the amount of product');
   }
   return parts.length
@@ -3270,25 +3366,25 @@ async function analyzeLipSubStepAsync(video, lm, subStep) {
   if (!detected){
     if (bv)
       return {passed:false,message:
-        'No lipstick detected - your lips look the same as in your before photo. '+
+        'No lipstick detected. Your lips look the same as in your before photo. '+
         'Fill fully within the outline in even light, then check again.'};
     // No red/pink shift over the cheek = bare lips → always "natural",
     // never "too sheer" (which wrongly implies thin lipstick was applied).
     const hasColourShift=(redShift>16||pinkShift>18)&&satIncrease>0.06&&devFH>54;
     let msg;
     if(!hasColourShift)
-      msg='No lipstick detected - your lips look natural. If you have applied colour, fill fully within the outline in good light and hold still.';
+      msg='No lipstick detected. Your lips look natural. If you have applied colour, fill fully within the outline in good light and hold still.';
     else if(dev<=46)
       msg='Colour is close to your skin tone. Try the recommended shade for a clearer result.';
     else
-      msg='Application looks sheer - build up a little more colour within the outline and check again.';
+      msg='Application looks sheer. Build up a little more colour within the outline and check again.';
     return {passed:false,message:msg};
   }
 
   // Unevenness from the robust spread of the whole region, with glare already
   // excluded - a wet highlight can no longer masquerade as a bare patch.
   if (satIQR>0.26)
-    return {passed:false,message:'Application uneven - some areas look bare or patchy. Blend more evenly right to the outline edges, then check again.'};
+    return {passed:false,message:'Application is uneven. Some areas look bare or patchy. Blend more evenly right to the outline edges, then check again.'};
 
   const recShade=activeShades()?.lips;
   const shadeHex=recShade?.hex;
@@ -3297,11 +3393,11 @@ async function analyzeLipSubStepAsync(video, lm, subStep) {
   const recBr=sr*0.299+sg*0.587+sb*0.114;
   const shadeDist=Math.abs(r-sr)+Math.abs(g-sg)+Math.abs(b-sb);
   const brightDiff=br-recBr;
-  if(shadeDist<=70) return{passed:true,warning:false,message:'Lipstick applied and recognized - shade matches your recommendation! Looks beautiful.'};
+  if(shadeDist<=70) return{passed:true,warning:false,message:'Lipstick applied and recognized. The shade matches your recommendation! Looks beautiful.'};
   let shadeMsg;
-  if(brightDiff>45) shadeMsg='Too light - your lipstick is lighter than the recommended shade. Try a deeper application or a darker product.';
-  else if(brightDiff<-45) shadeMsg='Too dark - your lipstick is darker than the recommended shade. Try a lighter application or a brighter product.';
-  else shadeMsg="Wrong shade - the colour doesn't match the recommendation. Try the suggested shade for the best result.";
+  if(brightDiff>45) shadeMsg='Too light. Your lipstick is lighter than the recommended shade. Try a deeper application or a darker product.';
+  else if(brightDiff<-45) shadeMsg='Too dark. Your lipstick is darker than the recommended shade. Try a lighter application or a brighter product.';
+  else shadeMsg="Wrong shade. The colour doesn't match the recommendation. Try the suggested shade for the best result.";
   return{passed:true,warning:true,message:shadeMsg};
 }
 
@@ -3346,7 +3442,7 @@ function analyzeZoneColor(video, lm, step, sampleOverride) {
         if (!bv.applied){
           const noun={blush:'blush',eyebrows:'brow',contour:'contour'}[step]||step;
           return {passed:false, message:
-            `No ${noun} product detected - this area looks the same as your before photo. `+
+            `No ${noun} product detected. This area looks the same as your before photo. `+
             `Apply within the guide in even light, then check again.`};
         }
         return {passed:true, message:goodMessages[step]};
@@ -3377,16 +3473,16 @@ function analyzeZoneColor(video, lm, step, sampleOverride) {
         const hasColourShift=(redShift>16||pinkShift>18)&&satIncrease>0.06;
         let msg;
         if(!hasColourShift)
-          msg='No lipstick detected - your lips look natural. If you have applied colour, fill fully within the outline in good light and hold still.';
+          msg='No lipstick detected. Your lips look natural. If you have applied colour, fill fully within the outline in good light and hold still.';
         else if(dev<=46)
           msg='Colour is close to your skin tone. Try the recommended shade for a clearer result.';
         else
-          msg='Application looks sheer - build up a little more colour within the outline and check again.';
+          msg='Application looks sheer. Build up a little more colour within the outline and check again.';
         return{passed:false,message:msg};
       }
       const samplePts=sampleOverride||SAMPLE_IDX[step]||[];
       const ptSats=samplePts.map(i=>{const x=Math.round(lm[i].x*W),y=Math.round(lm[i].y*H);if(x<1||x>=W-1||y<1||y>=H-1)return null;let pr=0,pg=0,pb=0,pn=0;for(let dx=-1;dx<=1;dx++)for(let dy=-1;dy<=1;dy++){const d=tctx.getImageData(x+dx,y+dy,1,1).data;pr+=d[0];pg+=d[1];pb+=d[2];pn++;}return pn>0?rgbSat(pr/pn,pg/pn,pb/pn):null;}).filter(v=>v!==null);
-      if(ptSats.length>2){const spread=Math.max(...ptSats)-Math.min(...ptSats);if(spread>0.20)return{passed:false,message:'Application uneven - some areas look bare or smudged. Blend more evenly right to the outline edges, then check again.'};}
+      if(ptSats.length>2){const spread=Math.max(...ptSats)-Math.min(...ptSats);if(spread>0.20)return{passed:false,message:'Application is uneven. Some areas look bare or smudged. Blend more evenly right to the outline edges, then check again.'};}
       const recShade=STATE.shades?.[STATE.toneKey||'medium_warm']?.lips;
       const shadeHex=recShade?.hex;
       if(!shadeHex||shadeHex.length<7)return{passed:true,warning:false,message:'Lipstick applied and recognized! Great coverage.'};
@@ -3394,11 +3490,11 @@ function analyzeZoneColor(video, lm, step, sampleOverride) {
       const recBr=sr*0.299+sg*0.587+sb*0.114;
       const shadeDist=Math.abs(r-sr)+Math.abs(g-sg)+Math.abs(b-sb);
       const brightDiff=br-recBr;
-      if(shadeDist<=55)return{passed:true,warning:false,message:'Lipstick applied and recognized - shade matches your recommendation! Looks beautiful.'};
+      if(shadeDist<=55)return{passed:true,warning:false,message:'Lipstick applied and recognized. The shade matches your recommendation! Looks beautiful.'};
       let shadeMsg;
-      if(brightDiff>35) shadeMsg='Too light - your lipstick is lighter than the recommended shade. Try a deeper application or a darker product.';
-      else if(brightDiff<-35) shadeMsg='Too dark - your lipstick is darker than the recommended shade. Try a lighter application or a brighter product.';
-      else shadeMsg="Wrong shade - the colour doesn't match the recommendation. Try the suggested shade for the best result.";
+      if(brightDiff>35) shadeMsg='Too light. Your lipstick is lighter than the recommended shade. Try a deeper application or a darker product.';
+      else if(brightDiff<-35) shadeMsg='Too dark. Your lipstick is darker than the recommended shade. Try a lighter application or a brighter product.';
+      else shadeMsg="Wrong shade. The colour doesn't match the recommendation. Try the suggested shade for the best result.";
       return{passed:true,warning:true,message:shadeMsg};
     }
 
@@ -3414,9 +3510,9 @@ function analyzeZoneColor(video, lm, step, sampleOverride) {
       const detected=br>35&&br<235&&dev>42&&satIncrease>0.10&&absSat>0.30&&(pinkShift>26||warmShift>26);
       if (!detected){
         let msg;
-        if(dev<=42||absSat<=0.30) msg='No blush detected - apply colour to the apples of your cheeks within the guide.';
-        else if(satIncrease<=0.10) msg='Blush too sheer - build up a little more colour and blend within the outline.';
-        else msg='Colour not reading as blush - try a pinker or rosier shade and blend upward along the guide.';
+        if(dev<=42||absSat<=0.30) msg='No blush detected. Apply colour to the apples of your cheeks within the guide.';
+        else if(satIncrease<=0.10) msg='Blush is too sheer. Build up a little more colour and blend within the outline.';
+        else msg='Colour is not reading as blush. Try a pinker or rosier shade and blend upward along the guide.';
         return{passed:false,message:msg};
       }
       return{passed:true,message:goodMessages.blush};
@@ -3530,14 +3626,29 @@ function lipRegionPts(lm, W, H, subStep) {
   return {outer:lmPts(lm,LIP_OUTER_LOOP,W,H), inner:lmPts(lm,LIP_INNER,W,H)};
 }
 
+// Coverage only sets how strongly the blush guide is shaded, and it changes
+// slowly, so it's measured about 5 times a second rather than every frame.
+// Copying a live video frame into readable memory costs 10-15 ms, which
+// every frame was enough to make the blush step stutter.
+let _blushCov={t:-1e9, v:0};
 function getBlushCoverage(video, lm) {
+  const now=performance.now();
+  if (now-_blushCov.t<200) return _blushCov.v;
+  _blushCov.t=now;
+  _blushCov.v=measureBlushCoverage(video, lm);
+  return _blushCov.v;
+}
+function measureBlushCoverage(video, lm) {
   try {
-    const vW=video.videoWidth||640,vH=video.videoHeight||480;
-    const tmp=document.createElement('canvas'); tmp.width=vW; tmp.height=vH;
-    const tctx=tmp.getContext('2d'); tctx.drawImage(video,0,0,vW,vH);
+    // Runs every frame of the blush step: a quarter-size CPU canvas read once,
+    // instead of a full-size GPU canvas read back pixel by pixel (8 GPU stalls
+    // per frame). Downscaling also averages each sample over a small patch.
+    const vW=160, vH=120;
+    const tctx=scratchCtx('blush', vW, vH); tctx.drawImage(video,0,0,vW,vH);
+    const img=tctx.getImageData(0,0,vW,vH).data;
     const pts=[123,352,116,345,50,280,205,425];
     let sat=0,n=0;
-    pts.forEach(i=>{const x=Math.round(lm[i].x*vW),y=Math.round(lm[i].y*vH);if(x>=1&&x<vW-1&&y>=1&&y<vH-1){const d=tctx.getImageData(x,y,1,1).data;sat+=rgbSat(d[0],d[1],d[2]);n++;}});
+    pts.forEach(i=>{const x=Math.round(lm[i].x*vW),y=Math.round(lm[i].y*vH);if(x>=1&&x<vW-1&&y>=1&&y<vH-1){const o=(y*vW+x)*4;sat+=rgbSat(img[o],img[o+1],img[o+2]);n++;}});
     return Math.min(1,Math.max(0,(n>0?sat/n:0)-0.09)/0.15);
   } catch(e){return 0;}
 }
@@ -3706,7 +3817,7 @@ function startTryOn() {
   .then(()=>{
     if(loading) loading.style.display='none';
     const canvas=document.getElementById('tryon-canvas');
-    let sending=false, fc=0;
+    let sending=false, lastT=-1;
     function loop(){
       if(!_toStream||!_toMesh){ _toRaf=null; return; }
       _toRaf=requestAnimationFrame(loop);
@@ -3717,8 +3828,10 @@ function startTryOn() {
       const ctx=canvas.getContext('2d');
       ctx.drawImage(video,0,0,vW,vH);
       if(_toLastLm) drawVirtualMakeup(ctx,_toLastLm,vW,vH);
-      if(!sending && fc++%3===0){
-        sending=true;
+      // Track every new camera frame (it used to be every 3rd screen refresh,
+      // so the makeup trailed the face). `sending` keeps it to one at a time.
+      if(!sending && video.currentTime!==lastT){
+        sending=true; lastT=video.currentTime;
         _toMesh.send({image:video}).finally(()=>{ sending=false; });
       }
     }
@@ -3754,6 +3867,7 @@ function onTryOnResults(results) {
 //  Render order (back→front): contour →
 //  blush → eyebrows → lips
 // ─────────────────────────────────────────
+let _lipLayer=null;
 function drawVirtualMakeup(ctx, lm, W, H, opts) {
   // opts.style    - render a specific variation (reference guide previews);
   //                 omit to use the one the user selected.
@@ -3775,12 +3889,12 @@ function drawVirtualMakeup(ctx, lm, W, H, opts) {
   // Overall face-on factor. The 2D filter only lines up on a fairly frontal,
   // level face; past that it smears across the cheeks/lips. Fade the WHOLE
   // filter out as the head turns or tilts so it never renders a mismatched
-  // mess — better to show less makeup than makeup in the wrong place.
+  // mess. Better to show less makeup than makeup in the wrong place.
   const _clamp=v=>Math.min(1,Math.max(0,v));
   const _off = Math.abs((lm[1].x-lm[234].x)/((lm[454].x-lm[234].x)||0.001) - 0.5);
   const _roll = Math.abs(lm[234].y-lm[454].y)/((Math.abs(lm[234].x-lm[454].x))||0.001);
   const faceOn = _clamp(1 - Math.max(0,(_off-0.14))/0.20 - Math.max(0,(_roll-0.18))/0.25);
-  if (faceOn<=0.05) return;   // too turned/tilted to place makeup — draw nothing
+  if (faceOn<=0.05) return;   // too turned/tilted to place makeup, draw nothing
 
   // Complete-look strengths, then faded with pose. Every zone is always present.
   const styleMult = {};
@@ -3935,8 +4049,12 @@ function drawVirtualMakeup(ctx, lm, W, H, opts) {
   // ── Lips: full outer shape with inner punch-out ────────────────
   if(tone.lips?.hex && mult.lips>0.05){
     const {r,g,b}=rgb(tone.lips.hex);
-    const lc=document.createElement('canvas'); lc.width=W; lc.height=H;
+    // One lip layer reused every frame (the live try-on calls this per frame).
+    const lc=_lipLayer||(_lipLayer=document.createElement('canvas'));
+    if (lc.width!==W || lc.height!==H){ lc.width=W; lc.height=H; }
     const lx=lc.getContext('2d');
+    lx.globalCompositeOperation='source-over'; lx.globalAlpha=1; lx.filter='none';
+    lx.clearRect(0,0,W,H);
     lx.filter='blur(1px)';
     lx.fillStyle=`rgb(${r},${g},${b})`;
     // Outer lip pulled 4% toward its centre so imperfect landmarks on a close /
