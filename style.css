@@ -2,9 +2,7 @@
    AI'M BEAUTIFUL - Bright White + Hot Pink
 ══════════════════════════════════════ */
 
-/* Variable names are kept from the original rose-gold theme so every rule
-   below re-colours without being renamed: --rose-gold is now the main pink
-   accent, --cream the main (dark berry) text colour, --panel the card white. */
+/* Token names come from the first rose-gold theme: --rose-gold is the main pink, --cream the dark berry text, --panel the card white. */
 :root {
   --bg:         #fff0f6;
   --bg2:        #ffe6f1;
@@ -249,52 +247,55 @@ body {
 }
 .btn-retry:hover{ background:rgba(192,82,74,.15); }
 
-.btn-tryon {
+/* ── Live try-on buttons (Try It On and Preview Live share one look) ── */
+.btn-tryon, .btn-compare{
   position:relative; overflow:hidden;
-  background:linear-gradient(135deg,#ffc41f 0%,#ffe57a 46%,#ffc41f 100%);
-  border:none; color:#7a0035;
-  font-family:var(--sans); font-size:.83rem;
-  font-weight:600; letter-spacing:.22em;
-  text-transform:uppercase;
-  padding:.88rem 3rem;
-  cursor:pointer; border-radius:40px;
-  min-width:210px;
-  box-shadow:0 0 22px rgba(255,46,126,.45), 0 4px 18px rgba(255,46,126,.25);
-  transition:transform .15s, box-shadow .25s;
-  animation:tryonPulse 3s ease-in-out infinite;
-}
-.btn-tryon:hover{
-  transform:translateY(-2px);
-  box-shadow:0 0 46px rgba(255,110,170,.75), 0 8px 32px rgba(255,46,126,.5);
-}
-.btn-tryon:active{ transform:scale(.97); }
-.btn-tryon::after{
-  content:'';
-  position:absolute; inset:0;
-  background:linear-gradient(105deg,transparent 35%,rgba(255,255,255,.30) 50%,transparent 65%);
-  transform:translateX(-100%);
-  animation:shine 2.6s ease-in-out infinite;
-}
-@keyframes tryonPulse{
-  0%,100%{ box-shadow:0 0 18px rgba(255,46,126,.38), 0 4px 14px rgba(255,46,126,.20); }
-  50%    { box-shadow:0 0 44px rgba(255,110,170,.72), 0 6px 28px rgba(255,46,126,.48); }
-}
-
-/* ── Compare My Look (step screen) ── */
-.btn-compare{
-  background:transparent;
-  border:1px solid rgba(255,46,126,.55);
-  color:rgba(255,46,126,.95);
-  font-family:var(--sans); font-size:.75rem;
-  letter-spacing:.16em; text-transform:uppercase;
-  padding:.62rem 1.6rem; cursor:pointer;
-  border-radius:20px; width:100%; max-width:320px;
-  transition:border-color .2s, color .2s, background .2s;
-}
-.btn-compare:hover{
-  border-color:var(--rose-gold);
-  background:rgba(255,46,126,.09);
+  border:2px solid transparent;
+  background:
+    linear-gradient(180deg,#ffffff 0%,#fff0f6 100%) padding-box,
+    linear-gradient(115deg,#ff0a7a,#ffb3d1,#d10068,#ff6fa8,#ff0a7a) border-box;
+  background-size:100% 100%, 300% 100%;
   color:var(--rose-light);
+  font-family:var(--sans); font-weight:700;
+  text-transform:uppercase; cursor:pointer;
+  box-shadow:0 6px 22px rgba(255,46,126,.22), inset 0 1px 0 #ffffff;
+  animation:tryonBorder 6s linear infinite;
+  transition:transform .15s, box-shadow .25s;
+}
+.btn-tryon{
+  font-size:.82rem; letter-spacing:.2em;
+  padding:.9rem 2.8rem; border-radius:40px; min-width:230px;
+}
+.btn-compare{
+  font-size:.76rem; letter-spacing:.16em;
+  padding:.7rem 1.6rem; border-radius:30px;
+  width:100%; max-width:320px;
+}
+.btn-tryon:hover, .btn-compare:hover{
+  transform:translateY(-2px);
+  box-shadow:0 10px 30px rgba(255,46,126,.34), inset 0 1px 0 #ffffff;
+}
+.btn-tryon:active, .btn-compare:active{ transform:scale(.97); }
+/* light sweep, same motion as the main buttons' shine */
+.btn-tryon::after, .btn-compare::after{
+  content:''; position:absolute; inset:0; pointer-events:none;
+  background:linear-gradient(105deg,transparent 38%,rgba(255,111,168,.18) 50%,transparent 62%);
+  transform:translateX(-100%);
+  animation:shine 3.2s ease-in-out infinite;
+}
+.tryon-spark{
+  display:inline-block; margin-right:.55em;
+  background:linear-gradient(135deg,#ff0a7a,#ff9ec7);
+  -webkit-background-clip:text; background-clip:text; color:transparent;
+  animation:twinkle 2.4s ease-in-out infinite;
+}
+@keyframes tryonBorder{ to{ background-position:0 0, 300% 0; } }
+@keyframes twinkle{
+  0%,100%{ transform:scale(1) rotate(0deg);    opacity:1; }
+  50%    { transform:scale(1.3) rotate(20deg); opacity:.75; }
+}
+@media (prefers-reduced-motion:reduce){
+  .btn-tryon, .btn-compare, .btn-tryon::after, .btn-compare::after, .tryon-spark{ animation:none; }
 }
 
 .tryon-cta{ text-align:center; margin:22px 0 6px; }
@@ -332,16 +333,13 @@ body {
   display:flex; align-items:center; justify-content:center;
   height:1.6em;
 }
-/* SVG glyphs sit on the same optical size as the text glyphs and inherit the
-   beige via currentColor, so the four icons read as one set. */
+/* Icons take the pink through currentColor. */
 .focal-glyph svg{ width:1.5em; height:1.5em; fill:currentColor; display:block; }
 .focal-name{ font-family:var(--serif); font-size:1.15rem; color:var(--cream); }
 .focal-desc{ font-size:.72rem; color:var(--muted); line-height:1.4; }
 
 /* ══ CAMERA BOX ══ */
-/* Portrait mirror. Width is the driver - capped at both the container width
-   and the width that keeps height within ~72vh (54vh × 4/3) - so the 3:4
-   ratio always holds and it never overflows, on desktop or mobile. */
+/* Portrait mirror box that keeps 3:4 and never overflows. */
 .cam-box {
   position:relative;
   width:min(100%, 54vh);
@@ -362,6 +360,15 @@ body {
   width:100%; height:100%;
   transform:scaleX(-1);
 }
+
+/* The photo just taken, over the live feed with the same crop and mirroring. */
+.capture-review{
+  position:absolute; inset:0;
+  width:100%; height:100%;
+  object-fit:cover; transform:scaleX(-1);
+  display:block;
+}
+.capture-review[hidden]{ display:none; }
 
 .cam-corners{ position:absolute; inset:0; pointer-events:none; }
 .cc{
@@ -398,12 +405,6 @@ body {
   from{opacity:0;transform:translateY(-8px);}
   to  {opacity:1;transform:translateY(0);}
 }
-.glasses-warn-close {
-  background:none; border:none; color:rgba(255,201,225,.6);
-  font-size:.9rem; cursor:pointer; line-height:1; padding:2px 5px;
-  flex-shrink:0; transition:color .2s;
-}
-.glasses-warn-close:hover { color:#fff; }
 
 /* pills */
 .pill-row{ display:flex; gap:.5rem; flex-wrap:wrap; justify-content:center; }
@@ -566,9 +567,7 @@ body {
   justify-content:center; padding:1.5rem; gap:1.1rem;
   background:var(--bg2); border-right:1px solid var(--border);
 }
-/* Live mirror + reference share the row as equal, larger portrait panels.
-   height:auto + max-height cancels the base .cam-box viewport height so the
-   flex row and aspect-ratio drive the size instead. */
+/* Mirror and reference side by side as portrait panels. */
 .step-cam-box{
   flex:1 1 0; width:auto; height:auto;
   max-width:500px; max-height:84vh; aspect-ratio:3/4;
@@ -683,8 +682,7 @@ body {
 }
 .tryon-close:hover{ color:var(--rose-gold); }
 
-/* Portrait stage. Width is derived from the height cap so the 3:4 ratio always
-   holds and it never overflows the viewport on any phone. */
+/* Portrait stage that keeps 3:4 without overflowing. */
 .tryon-stage{
   position:relative;
   width:min(100%, 56vh);
@@ -694,9 +692,7 @@ body {
   flex-shrink:0;
 }
 .tryon-video{ position:absolute; opacity:0; width:1px; height:1px; }
-/* The canvas is drawn at the camera's native (landscape) resolution; object-fit
-   crops it to the portrait stage, and scaleX(-1) mirrors it like the other
-   camera views so it reads as a real mirror. */
+/* Camera-resolution canvas cropped to portrait and mirrored like the other views. */
 .tryon-canvas{
   position:absolute; inset:0; width:100%; height:100%;
   object-fit:cover; transform:scaleX(-1); display:block;
@@ -741,11 +737,10 @@ body {
 .feedback-area.good{ border-color:var(--success); }
 .feedback-area.bad { border-color:var(--danger); }
 
-/* Column of step-screen buttons, centered so the 320px-capped primary/compare
-   buttons don't sit flush-left against the wider ghost/retry buttons. */
+/* Step buttons, centred, right under the shade info. */
 .step-actions{
   display:flex; flex-direction:column; align-items:center;
-  gap:.6rem; margin-top:auto;
+  gap:.6rem; margin-top:.4rem;
 }
 .step-actions > button{ width:100%; max-width:320px; }
 
@@ -784,10 +779,7 @@ body {
   .style-grid{ grid-template-columns:1fr; }
 }
 
-/* ══════════════════════════════════════════════════════════
-   PHONE LAYOUT - every screen fits the viewport, so the next
-   button is always reachable without scrolling.
-══════════════════════════════════════════════════════════ */
+/* ══ PHONE LAYOUT: every screen fits without scrolling ══ */
 @media(max-width:640px){
   /* Tighter page rhythm across all screens */
   .page-wrap{ padding:1rem 1rem 1.25rem; gap:.75rem; }
@@ -806,12 +798,7 @@ body {
   .tryon-cta{ margin:.4rem 0 .1rem; }
   .focal-badge{ font-size:.68rem; padding:.25rem .8rem; }
 
-  /* ── Variation screen ──
-     The three options go in ONE row as compact tiles. Stacked full-width rows
-     ate ~200px of height and left no room for a usable reference image; this
-     costs ~78px and lets the reference be large enough to actually judge. The
-     coverage meter replaces the paragraph, and identical swatches on all three
-     tiles show at a glance that the shades do not change. */
+  /* ── Variation screen: the three options in one compact row ── */
   .style-grid{ grid-template-columns:repeat(3,1fr); gap:.4rem; }
   .style-card{ padding:.5rem .3rem; gap:.25rem; align-items:center; text-align:center; }
   .style-card-head{ flex-direction:column; gap:.1rem; width:100%; }
@@ -834,21 +821,14 @@ body {
 
   /* ── Step guide: no dead space between the mirror and the controls ── */
   .step-layout{ flex-direction:column; min-height:100vh; min-height:100dvh; }
-  /* The mirror and the reference are the working surface, so they get the
-     largest share of the screen: near-zero chrome around them and a taller
-     portrait frame, which grows each panel ~33% in area versus the old
-     small strip at the top. */
+  /* Mirror and reference get most of the screen. */
   .step-mirror-col{
     border-right:none; border-bottom:1px solid var(--border);
     flex:0 0 auto;              /* was stretching to 2.4fr, leaving a big gap */
     flex-direction:row; align-items:flex-start; justify-content:center;
     padding:.3rem; gap:.3rem;
   }
-  /* Mirror and reference are matched panels: same flex basis, same aspect,
-     tops aligned. min-width:0 stops the flex items overflowing the row (which
-     was pushing the camera off the left edge). The "REFERENCE" heading is
-     dropped here because it offset the reference canvas downward and broke the
-     alignment - the caption underneath already identifies it. */
+  /* Matched panels; min-width:0 stops them overflowing. The heading is hidden (the caption names it). */
   .step-cam-box{ aspect-ratio:3/4.3; max-height:none; min-width:0; }
   .step-ref-col{ gap:.2rem; min-width:0; }
   .step-ref-title{ display:none; }
@@ -883,8 +863,7 @@ body {
   .found-disclaimer{ font-size:.66rem; line-height:1.5; padding-top:.6rem; }
 }
 
-/* Short phones (SE-sized, or any phone with browser chrome eating the height).
-   Same layout, compressed further so nothing spills below the fold. */
+/* Short phones: same layout, tighter. */
 @media(max-width:640px) and (max-height:700px){
   .page-wrap{ padding:.6rem .85rem .8rem; gap:.45rem; }
   .page-title{ font-size:1.15rem; }
@@ -905,8 +884,7 @@ body {
   .ref-guide-title{ font-size:.55rem; }
 
   .step-mirror-col{ padding:.3rem; gap:.3rem; }
-  /* Shorter frame on short screens - the taller 3/4.3 portrait pushed the
-     controls past the fold here. */
+  /* Shorter frame so the controls stay on screen. */
   .step-cam-box, .step-ref-canvas{ aspect-ratio:3/3.8; }
   .step-info-col{ padding:.45rem .7rem .6rem; gap:.35rem; }
   .step-name{ font-size:1.05rem; }
@@ -921,21 +899,34 @@ body {
   .found-disclaimer{ font-size:.6rem; padding-top:.45rem; }
 }
 
-/* ══ IR TOUCH FRAME - coarse pointer targets ══
-   The mirror surface is touch-enabled via an IR frame, so every
-   control needs a finger-sized hit area and no hover-only affordance. */
+/* ══ PORTRAIT MIRROR (upright TV behind the glass): stacked layout ══ */
+@media (orientation:portrait) and (min-width:641px){
+  .step-layout{ flex-direction:column; min-height:100vh; min-height:100dvh; }
+  .step-mirror-col{
+    flex:0 0 auto; flex-direction:row; align-items:flex-start; justify-content:center;
+    border-right:none; border-bottom:1px solid var(--border);
+    padding:1.2rem; gap:1rem;
+  }
+  /* The live mirror is the working surface, so it gets the bigger share. */
+  .step-cam-box{ flex:1.6 1 0; max-width:none; max-height:62vh; min-width:0; }
+  .step-ref-col{ flex:1 1 0; max-width:none; min-width:0; }
+  .step-info-col{
+    flex:1 1 auto; overflow:visible;
+    width:100%; max-width:760px; margin:0 auto;
+    padding:1.4rem 2rem 2rem; gap:1rem;
+  }
+}
+
+/* ══ IR TOUCH FRAME: finger-sized targets ══ */
 @media (pointer:coarse){
   button, .focal-card, .style-card, .shade-card{ touch-action:manipulation; }
   .btn-primary, .btn-glow, .btn-tryon{ padding-top:1.15rem; padding-bottom:1.15rem; }
   .btn-ghost, .btn-retry, .btn-compare{ padding-top:.95rem; padding-bottom:.95rem; }
   .focal-card{ padding:1.9rem 1rem; }
   .style-card{ padding:1.2rem 1rem; }
-  .glasses-warn-close{ padding:10px 14px; font-size:1.1rem; }
 }
 
-/* A phone is a coarse pointer too, so the generous mirror-sized hit areas above
-   would undo the compact phone layout and push the next button off-screen.
-   Keep targets at the 44px touch minimum instead of the kiosk sizing. */
+/* Phones are coarse pointers too, so keep the 44px minimum instead of the mirror sizing. */
 @media (pointer:coarse) and (max-width:640px){
   .btn-primary, .btn-glow, .btn-tryon{ padding-top:.72rem; padding-bottom:.72rem; }
   .btn-ghost, .btn-retry, .btn-compare{ padding-top:.6rem; padding-bottom:.6rem; }
@@ -943,11 +934,7 @@ body {
   .style-card{ padding:.5rem .3rem; }
 }
 
-/* ══════════════════════════════════════════════════════════
-   SAVED / FAVOURITE MAKEUP LOOKS
-   + additional-brand lines on the shade / step / foundation
-     cards (see mergeBrandLibrary in app.js)
-══════════════════════════════════════════════════════════ */
+/* ══ SAVED LOOKS, plus extra brand lines on the cards ══ */
 
 /* ── Saved Looks button, welcome screen (top right) ── */
 .btn-saved-looks{
@@ -970,11 +957,7 @@ body {
 }
 .btn-saved-looks:active{ transform:scale(.97); }
 
-/* ── Save Look button, summary screen (bottom right) ──
-   Anchored to the summary screen itself rather than the viewport: every
-   .screen carries the fadeUp animation, and an animated transform makes the
-   screen the containing block for fixed children anyway. Positioning it
-   absolutely here is the same result, stated explicitly. */
+/* ── Save Look button, summary screen (bottom right) ── */
 #screen-summary{ position:relative; }
 .btn-save-look{
   position:absolute; right:1.4rem; bottom:1.6rem; z-index:20;
@@ -1147,8 +1130,7 @@ body {
 .sl-prod-brand{ font-family:var(--serif); font-size:.95rem; color:var(--cream); }
 .sl-note{ font-size:.66rem; color:var(--muted); line-height:1.5; font-style:italic; }
 
-/* Separator between two brands recommended for the same category. Both are
-   rendered with the identical row set - neither is styled as an afterthought. */
+/* Separator between two brands for the same category. */
 .sl-brand-sep{ height:1px; background:var(--border); margin:.15rem 0; }
 
 .sl-steps{ display:flex; flex-direction:column; gap:.6rem; }
@@ -1194,10 +1176,7 @@ body {
 .sl-confirm-text{ font-family:var(--serif); font-size:1rem; color:var(--cream); line-height:1.5; }
 .sl-confirm-actions{ display:flex; gap:.6rem; }
 
-/* ── Additional brands on the existing cards ──
-   Every brand matched to the same tone reuses the SAME classes as the first
-   one (.shade-swatch / .ssc-* / .found-*), so no brand is styled as secondary.
-   These rules only supply the separator and the stacking containers. */
+/* ── Extra brands on the existing cards (same classes; only separators here) ── */
 .shade-opt-sep{
   width:70%; height:1px; background:var(--border);
   margin:.35rem 0 .15rem;
@@ -1223,21 +1202,13 @@ body {
   .sl-thumb{ max-height:150px; }
 }
 
-/* ══════════════════════════════════════
-   MAKEUP LOOK SELECTION
-   The look cards reuse .focal-grid / .focal-card / .focal-glyph / .focal-name /
-   .focal-desc verbatim, so the screen is visually identical to the focal-point
-   step that follows it. Only the extra occasion line and the "Makeup look:"
-   badge need rules of their own.
-══════════════════════════════════════ */
+/* ══ MAKEUP LOOK SELECTION (reuses the focal card styles) ══ */
 .look-occasion{
   font-size:.62rem; letter-spacing:.06em;
   color:var(--rose-gold); opacity:.7; line-height:1.4;
 }
 .focal-card.look-card.selected .look-occasion{ opacity:1; }
 
-/* The badge itself is .focal-badge - only the wrapper spacing differs, because
-   it sits directly under the page header rather than under a grid. */
 .look-badge-wrap{ margin-top:-.4rem; }
 
 @media(max-width:640px){
@@ -1250,12 +1221,7 @@ body {
   .look-occasion{ display:none; }   /* name + desc already identify the look */
 }
 
-/* ══════════════════════════════════════
-   SINGLE BEST-MATCH RECOMMENDATION
-   The Shades screen now shows ONE product per category, so the card gains the
-   product name under the brand, and the grid gains a line explaining that the
-   pick was made across all three brands.
-══════════════════════════════════════ */
+/* ══ SINGLE BEST-MATCH RECOMMENDATION ══ */
 .shade-prod-txt{ font-size:.64rem; color:var(--muted); opacity:.85; line-height:1.35; }
 .shade-reason{
   font-size:.68rem; color:var(--muted); line-height:1.5;
@@ -1272,11 +1238,7 @@ body {
   .shade-reason{ font-size:.55rem; }
 }
 
-/* ══════════════════════════════════════
-   BRIGHT THEME - card lift
-   White cards on the pink background get a soft pink shadow so every panel
-   stands out clearly instead of relying on the thin border alone.
-══════════════════════════════════════ */
+/* ══ CARD SHADOWS ══ */
 .focal-card, .shade-card, .style-card, .ref-guide-block, .found-card,
 .step-shade-card, .step-coverage-card, .feedback-area, .summary-card,
 .sl-card, .sl-sect, .sl-confirm-box, .pill, .focal-badge{
@@ -1289,12 +1251,8 @@ body {
   box-shadow:0 0 0 3px rgba(255,46,126,.18), 0 8px 26px rgba(255,46,126,.3);
 }
 
-/* ══════════════════════════════════════════════════════════
-   MIRROR GLASS TUNING
-   The screen sits behind tinted two-way mirror glass, which dims everything
-   and swallows pale colours and thin strokes. So: heavier type, no faded or
-   semi-transparent text, stronger borders, and fully saturated pinks.
-══════════════════════════════════════════════════════════ */
+/* ══ MIRROR GLASS TUNING ══ */
+/* The tinted glass dims everything: heavier type, stronger borders, no faded text. */
 body{ font-weight:500; }
 .page-title, .step-name, .sl-empty-title{ font-weight:900; }
 .page-sub, .focal-desc, .style-desc, .step-instruction, .ref-guide-note,
@@ -1324,7 +1282,6 @@ body{ font-weight:500; }
 .btn-glow, .btn-primary{ text-shadow:0 1px 2px rgba(120,0,50,.35); }
 .btn-ghost, .btn-retry, .btn-compare, .btn-saved-looks, .btn-save-look{ font-weight:700; border-width:2px; }
 .btn-ghost{ color:var(--rose-light); }
-.btn-compare{ color:var(--rose-light); border-color:var(--rose-gold); background:#fff; }
 .btn-primary:disabled{ opacity:.55; }
 
 /* Bigger small print on the mirror display (phones keep their compact layout). */
@@ -1338,12 +1295,8 @@ body{ font-weight:500; }
   .pill{ font-size:.8rem; }
 }
 
-/* ── Screen as fill light ──
-   Behind mirror glass the webcam gets very little light, and a dark picture is
-   what shows up as the noisy, rainbow "ghost" image. The white glow around the
-   camera panels lights the face from the screen itself. When the lighting
-   check reads "too dark", body.low-light turns the whole page into a bright
-   white light panel until the picture is usable again. */
+/* ── Screen as fill light ── */
+/* The white glow lights the face; body.low-light turns the page white when it's too dark. */
 .cam-box, .step-ref-canvas, .tryon-stage{
   border:3px solid #fff;
   box-shadow:0 0 0 3px var(--rose-gold), 0 0 40px 14px rgba(255,255,255,.95);
@@ -1354,9 +1307,7 @@ body.low-light .cam-box, body.low-light .tryon-stage{
 }
 body.low-light .step-mirror-col{ background:#ffffff; }
 
-/* ── Capture flash ──
-   A full-screen white flash the moment the photo is taken (cameraFlash in
-   app.js), like a phone camera, so the user knows the capture happened. */
+/* ── Capture flash ── */
 .capture-flash{
   position:fixed; inset:0; z-index:20000; pointer-events:none;
   background:radial-gradient(ellipse at center,#ffffff 55%,#ffd6e8 100%);
@@ -1369,9 +1320,7 @@ body.low-light .step-mirror-col{ background:#ffffff; }
   100%{ opacity:0; }
 }
 
-/* ══════════════════════════════════════
-   GLASSES TRAINER (train-glasses.html)
-══════════════════════════════════════ */
+/* ══ MODEL TRAINER (trainer.html) ══ */
 .tg-layout{ display:flex; gap:1.5rem; width:100%; align-items:flex-start; }
 .tg-cam-col{ flex:1 1 0; display:flex; flex-direction:column; gap:.6rem; min-width:0; }
 .tg-cam{ width:100%; max-width:420px; }
@@ -1454,3 +1403,123 @@ body.low-light .step-mirror-col{ background:#ffffff; }
 .tg-table th, .tg-table td{ border:1px solid var(--border); padding:.35rem .45rem; text-align:left; color:var(--cream); }
 .tg-table th{ background:var(--bg2); font-weight:700; }
 #tg-results{ overflow-x:auto; }
+
+/* ══ CHOICE CARDS (makeup look, focal point, style) ══ */
+.focal-grid{ gap:1.1rem; max-width:560px; }
+.focal-card, .style-card{
+  position:relative;
+  border:2px solid transparent; border-radius:18px;
+  background:
+    linear-gradient(180deg,#ffffff 0%,#fff4f9 100%) padding-box,
+    linear-gradient(135deg,#ff9ec7,#ffd6e7 55%,#ff9ec7) border-box;
+  box-shadow:0 10px 28px rgba(255,46,126,.12), inset 0 1px 0 #ffffff;
+  transition:transform .2s, box-shadow .25s;
+  animation:cardIn .45s ease backwards;
+}
+.focal-card{ padding:1.9rem 1.1rem 1.6rem; gap:.5rem; }
+.focal-card:nth-child(2), .style-card:nth-child(2){ animation-delay:.07s; }
+.focal-card:nth-child(3), .style-card:nth-child(3){ animation-delay:.14s; }
+.focal-card:nth-child(4){ animation-delay:.21s; }
+.focal-card:hover, .style-card:hover{
+  transform:translateY(-4px);
+  box-shadow:0 16px 36px rgba(255,46,126,.2), inset 0 1px 0 #ffffff;
+}
+/* Selected: the same flowing pink border as the try-on buttons */
+.focal-card.selected, .style-card.selected{
+  background:
+    linear-gradient(180deg,#ffffff 0%,#ffe4f0 100%) padding-box,
+    linear-gradient(115deg,#ff0a7a,#ffb3d1,#d10068,#ff6fa8,#ff0a7a) border-box;
+  background-size:100% 100%, 300% 100%;
+  border:2.5px solid transparent;
+  box-shadow:0 14px 34px rgba(255,46,126,.3);
+  animation:tryonBorder 6s linear infinite;
+}
+.focal-card.selected::after{
+  content:'✓'; position:absolute; top:.7rem; right:.7rem;
+  width:1.7rem; height:1.7rem; border-radius:50%;
+  display:flex; align-items:center; justify-content:center;
+  background:linear-gradient(135deg,#ff4d94,#d10068);
+  color:#fff; font-size:.85rem; font-weight:700;
+  box-shadow:0 3px 10px rgba(209,0,104,.4);
+  animation:tickPop .3s ease both;
+}
+
+/* Icon medallion */
+.focal-glyph{
+  width:4.2rem; height:4.2rem; border-radius:50%;
+  background:radial-gradient(circle at 32% 28%,#ffffff 0%,#ffe1ee 72%);
+  box-shadow:inset 0 0 0 2px rgba(255,143,192,.55), 0 6px 16px rgba(255,46,126,.18);
+  color:var(--rose-gold); margin-bottom:.35rem; filter:none;
+  transition:background .25s, color .25s, box-shadow .25s;
+}
+.focal-glyph svg{ width:2.1rem; height:2.1rem; }
+.focal-card.selected .focal-glyph{
+  background:linear-gradient(135deg,#ff4d94,#d10068);
+  color:#ffffff;
+  box-shadow:0 6px 18px rgba(209,0,104,.4);
+}
+.focal-name{ font-size:1.25rem; }
+
+/* Occasion tags */
+.look-occasion{
+  display:flex; flex-wrap:wrap; justify-content:center; gap:.3rem; margin-top:.25rem;
+}
+.look-occasion span{
+  font-size:.64rem; letter-spacing:.04em; font-weight:600;
+  color:var(--rose-light);
+  background:rgba(255,46,126,.07); border:1px solid rgba(255,46,126,.25);
+  border-radius:999px; padding:.15rem .6rem;
+}
+
+/* Style cards keep their own ✓ circle, restyled to match */
+.style-card{ padding:1.15rem 1rem; border-radius:16px; }
+.style-tick{ width:1.35rem; height:1.35rem; line-height:1.2rem; border:2px solid var(--border); color:transparent; }
+.style-card.selected .style-tick{
+  background:linear-gradient(135deg,#ff4d94,#d10068); border-color:transparent; color:#fff;
+}
+
+/* "Pick one to continue" note, shown only while the button is disabled */
+.choice-hint{
+  display:none; font-size:.8rem; font-weight:600; color:var(--muted);
+  margin-bottom:-.3rem;
+}
+.page-actions:has(> .btn-primary:disabled) > .choice-hint{ display:block; }
+
+@keyframes cardIn{
+  from{ opacity:0; transform:translateY(14px); }
+  to  { opacity:1; transform:none; }
+}
+@keyframes tickPop{
+  from{ transform:scale(0); }
+  70% { transform:scale(1.2); }
+  to  { transform:scale(1); }
+}
+
+/* Portrait mirror: bigger cards that use the height of the glass */
+@media (orientation:portrait) and (min-width:641px){
+  .focal-grid{ max-width:640px; gap:1.4rem; }
+  .focal-card{ padding:2.6rem 1.3rem 2.2rem; }
+  .focal-glyph{ width:5.2rem; height:5.2rem; }
+  .focal-glyph svg{ width:2.6rem; height:2.6rem; }
+  .focal-name{ font-size:1.5rem; }
+  .page-wrap:has(> .focal-grid){ max-width:720px; }
+  /* centre the content on the tall glass instead of leaving the bottom empty */
+  .screen > .page-wrap{ justify-content:center; }
+}
+
+/* Phones: same design, compact */
+@media(max-width:640px){
+  .focal-grid{ gap:.7rem; }
+  .focal-card{ padding:1.1rem .7rem 1rem; gap:.3rem; border-radius:14px; }
+  .focal-glyph{ width:3rem; height:3rem; margin-bottom:.15rem; }
+  .focal-glyph svg{ width:1.5rem; height:1.5rem; }
+  .focal-name{ font-size:1.02rem; }
+  .focal-card.selected::after{ width:1.35rem; height:1.35rem; font-size:.7rem; top:.5rem; right:.5rem; }
+  .look-occasion span{ font-size:.54rem; padding:.1rem .45rem; }
+  .style-card{ padding:.55rem .35rem; border-radius:12px; }
+}
+
+@media (prefers-reduced-motion:reduce){
+  .focal-card, .style-card, .focal-card.selected, .style-card.selected,
+  .focal-card.selected::after{ animation:none; }
+}

@@ -10,13 +10,10 @@ const STATE = {
   blushLm:null,
   blushFrameCount:0,
   detectFrame:0,
-  accDismissedAt:0,
   detectLm:null,      // smoothed landmarks for the detection overlay
-  accActive:[],       // accessories currently detected (reminder banner only)
+  accActive:[],       // accessories currently detected (blocks Capture)
   accPosStreak:0,     // consecutive positive accessory reads (hysteresis)
   accNegStreak:0,     // consecutive clear reads (hysteresis)
-  accDismissedForSession:false, // user clicked ✕ on the reminder - stay quiet
-  readyStreak:0,      // consecutive frames the user has held a valid pose
   countdownStart:0,   // ms timestamp the capture countdown began
   // ── Style variation (Objective 6) ──
   styleData:null,        // data/style-variations.json
@@ -34,9 +31,7 @@ const STATE = {
 const STEPS       = ['lips','blush','eyebrows','contour'];
 const STEP_LABELS = { lips:'Lips', blush:'Blush', eyebrows:'Eyebrows', contour:'Contour' };
 
-// The focal point the user picks -> the makeup step it maps to. Mirrors the
-// "mapStep" field already in data/focal-points.json; kept here as a constant so
-// the makeup-look helpers still resolve correctly if that file fails to load.
+// Focal point -> makeup step. Also in focal-points.json, kept here in case that file fails to load.
 const FOCAL_TO_STEP = { lips:'lips', eyebrows:'eyebrows', cheeks:'blush', contour:'contour' };
 
 const STEP_INSTRUCTIONS = {
@@ -82,16 +77,12 @@ const SAMPLE_IDX = {
   contour:  [172,397,136,365,58,288,152,148],
 };
 
-// ─────────────────────────────────────────
-//  CANVAS / OVERLAY SYNC
-// ─────────────────────────────────────────
+// ── Canvas / overlay sync ──
 function syncOverlay(canvasEl, videoEl) {
   const rect = videoEl.getBoundingClientRect();
   const W = Math.round(rect.width)  || videoEl.videoWidth  || 640;
   const H = Math.round(rect.height) || videoEl.videoHeight || 480;
-  // Backing store at the screen's real pixel density, so text and guides stay
-  // sharp on scaled displays (125%/150% Windows, TVs). Callers keep drawing
-  // in CSS pixels; the transform maps them onto the bigger canvas.
+  // Draw at the screen's real pixel density so text stays sharp on scaled displays.
   const dpr = Math.min(window.devicePixelRatio || 1, 3);
   const bw = Math.round(W*dpr), bh = Math.round(H*dpr);
   if (canvasEl.width  !== bw) canvasEl.width  = bw;
@@ -105,15 +96,7 @@ function syncOverlay(canvasEl, videoEl) {
   return { W, H, effW, effH, ox, oy };
 }
 
-// ─────────────────────────────────────────
-//  PATH HELPERS
-// ─────────────────────────────────────────
-function polyPath(ctx, pts) {
-  if (!pts.length) return;
-  ctx.moveTo(pts[0].x, pts[0].y);
-  for (let i=1;i<pts.length;i++) ctx.lineTo(pts[i].x, pts[i].y);
-  ctx.closePath();
-}
+// ── Path helpers ──
 function softPolyPath(ctx, pts) {
   const n=pts.length; if (n<2) return;
   const s={x:(pts[n-1].x+pts[0].x)/2, y:(pts[n-1].y+pts[0].y)/2};
@@ -129,15 +112,8 @@ function softArcPath(ctx, pts) {
 }
 function lmPts(lm, indices, W, H) { return indices.map(i=>({x:lm[i].x*W, y:lm[i].y*H})); }
 
-// ─────────────────────────────────────────
-//  HEAD-TURN VISIBILITY
-//  MediaPipe tracks the face through a full
-//  profile, so guides should never vanish -
-//  they only fade as the head turns, since
-//  landmark accuracy drops with the angle.
-//  Returns an opacity multiplier in [0.35,1].
-// ─────────────────────────────────────────
-// How far off-axis the head is: 0 = dead-on, ~0.5 = full profile.
+// ── Head-turn visibility ──
+// How far off-axis the head is: 0 = straight on, about 0.5 = full profile.
 function faceTurnOffset(lm) {
   const faceW = Math.abs(lm[454].x - lm[234].x) || 0.001;
   const r = (lm[1].x - lm[234].x) / faceW;   // nose position across the face
@@ -151,17 +127,11 @@ function turnVisibility(lm) {
   return Math.max(0.35, 1 - (off - 0.22) / 0.45);
 }
 
-// Stricter gates than the display fade above. A reference PHOTO and an
-// accessory decision both need a genuinely straight-on face.
+// Stricter limits for the capture photo and the accessory check.
 const TURN_OK_CAPTURE   = 0.15;   // realistic for a hand-held / desk webcam
 const TURN_OK_ACCESSORY = 0.12;   // accessory check needs a near-frontal face
 
-// ─────────────────────────────────────────
-//  FACE SHAPE DETECTION
-//  Classifies from landmark proportions.
-//  Returns: 'oval'|'round'|'oblong'|
-//           'heart'|'diamond'|'square'
-// ─────────────────────────────────────────
+// ── Face shape (from landmark proportions) ──
 function detectFaceShape(lm) {
   try {
     const faceW  = Math.abs(lm[234].x - lm[454].x);
@@ -181,12 +151,9 @@ function detectFaceShape(lm) {
   } catch(e) { return 'oval'; }
 }
 
-// ─────────────────────────────────────────
-//  DATA LOADING
-// ─────────────────────────────────────────
+// ── Data loading ──
 async function loadData() {
-  // Each JSON database is fetched independently so that one missing or malformed
-  // file cannot take down the rest of the application (ISO/IEC 25010 - Updatability).
+  // Each file loads on its own so one broken file can't stop the whole app.
   const grab = (url) => fetch(url).then(r=>{
     if(!r.ok) throw new Error(`${url} → HTTP ${r.status}`);
     return r.json();
@@ -209,18 +176,9 @@ async function loadData() {
   });
 }
 
-// ─────────────────────────────────────────
-//  ADDITIONAL BRAND LIBRARIES
-//  A brand file has the same shape as
-//  shades.json (tone -> step -> product),
-//  plus an optional per-tone "foundation".
-//  Its entries are attached to the EXISTING
-//  recommendation for the same tone as extra
-//  options (`.alt`) - nothing is replaced and
-//  no brand-specific rule is introduced, so
-//  the recommendation logic is unchanged.
-//  Returns how many entries were merged.
-// ─────────────────────────────────────────
+// ── Extra brand libraries ──
+// Same shape as shades.json. Entries are added as extra options (.alt) to the
+// matching tone; nothing is replaced.
 function mergeBrandLibrary(lib) {
   if (!lib || typeof lib!=='object') return 0;
   let n=0;
@@ -242,13 +200,8 @@ function mergeBrandLibrary(lib) {
   return n;
 }
 
-// ─────────────────────────────────────────
-//  STYLE VARIATION RESOLUTION
-//  A variation never invents a colour - it
-//  re-points each step at an entry that
-//  already exists in the local shade
-//  library, relative to the detected tone.
-// ─────────────────────────────────────────
+// ── Style variation ──
+// A variation never invents a colour, it picks an existing shade relative to the tone.
 const TONE_LEVELS = ['light','medium','dark'];
 
 function relTone(toneKey, rel) {
@@ -275,34 +228,16 @@ function resolveShades(toneKey, style) {
   return out;
 }
 
-// ─────────────────────────────────────────
-//  SINGLE BEST PRODUCT PER CATEGORY
-//
-//  Every brand matched to the detected tone
-//  and category competes: the primary entry
-//  from shades.json plus every additional
-//  brand merged in from a brand library
-//  (.alt, e.g. Chuchu Beauty). Exactly ONE
-//  winner is returned, so the user is given a
-//  recommendation instead of a brand list.
-//
-//  Nothing is deleted - the losing brands stay
-//  in the data and remain eligible on another
-//  tone, another category or another makeup
-//  look, which is why the winning brand is not
-//  always the same one.
-// ─────────────────────────────────────────
-// How far from the user's own colouring the recommended shade should sit.
-// 0 = closest to their natural colour, 1 = the most contrast the library offers.
+// ── One best product per category ──
+// Every brand for the tone competes and one winner is picked.
+// How far from the user's own colouring the shade should sit (0 = closest, 1 = most contrast).
 const LOOK_BOLDNESS = {
   school:           0.20,
   professional:     0.44,
   date_casual_glam: 0.64,
   party_glam:       0.88,
 };
-// Some categories carry colour further than others at the same makeup look.
-// Foundation is deliberately near zero: a base shade must match the skin, never
-// contrast with it.
+// How strongly each category carries colour. Foundation stays near 0 so it matches the skin.
 const CATEGORY_BOLD = { lips:1.00, blush:0.80, eyebrows:0.90, contour:0.70, foundation:0.05 };
 
 function lookBoldness(step) {
@@ -329,10 +264,7 @@ function productCandidates(entry) {
   ];
 }
 
-// Scores the candidates on shade compatibility with the analysed skin tone,
-// weighted by the selected makeup look and the product category, and returns the
-// single best match. The returned object carries no .alt, so every screen that
-// renders additional brands naturally falls back to showing just this one.
+// Scores the candidates against the skin tone, look and category, and returns the best one.
 function bestProduct(entry, step) {
   const cands = productCandidates(entry);
   if (cands.length<=1) return cands[0] || null;
@@ -344,9 +276,7 @@ function bestProduct(entry, step) {
 
   let win=0, winScore=Infinity;
   cands.forEach((c,i)=>{
-    // Normalised boldness of this shade within the candidate set, scored against
-    // what the selected makeup look is asking for. The curated primary entry
-    // breaks an exact tie only, so the outcome stays deterministic.
+    // Boldness of this shade within the set, scored against what the look asks for.
     const norm  = (dist[i]-lo)/span;
     const score = Math.abs(norm-target) - (c.primary ? 0.001 : 0);
     if (score < winScore){ winScore=score; win=i; }
@@ -364,26 +294,14 @@ function selectBestSet(tone) {
   return out;
 }
 
-// The shade set every other module should read from: detected tone, after the
-// selected style variation has been applied and one product per category has
-// been chosen. Every screen therefore shows the same single recommendation.
+// Shade set used everywhere: detected tone, chosen variation, one product per category.
 function activeShades() {
   return selectBestSet(resolveShades(STATE.toneKey||'medium_warm', STATE.style));
 }
 
-// ─────────────────────────────────────────
-//  MAKEUP LOOK
-//  Chosen one screen BEFORE the focal point.
-//  It never replaces the focal point or the
-//  style variation - it modulates them, via
-//  the single styleIntensity() hook below,
-//  so one change reaches the written
-//  guidance, the "amount to apply" meter, the
-//  application-quality band, the reference
-//  guide and the AR try-on at the same time.
-// ─────────────────────────────────────────
-// Fallback labels, used only if data/makeup-looks.json cannot be loaded, so a
-// missing preset file degrades to "no look guidance" instead of a broken badge.
+// ── Makeup look ──
+// Adjusts the focal point and variation through styleIntensity().
+// Fallback labels in case makeup-looks.json fails to load.
 const LOOK_LABELS = {
   professional:     'Professional',
   date_casual_glam: 'Date / Casual Glam',
@@ -394,18 +312,14 @@ const LOOK_LABELS = {
 function currentLook(){ return (STATE.look && STATE.lookData?.[STATE.look]) || null; }
 function currentLookLabel(){ return currentLook()?.label || LOOK_LABELS[STATE.look] || ''; }
 
-// Per-step multiplier for the selected look. Always <=1.00 - 1.00 is the
-// existing, already-tuned rendering maximum, so a look can soften the result
-// but can never render heavier than the system does today. That ceiling is what
-// keeps the mapped makeup realistic instead of filter-like.
+// Per-step multiplier for the selected look. Never above 1.00, so a look can soften
+// the result but never make it heavier than the tuned maximum.
 function lookIntensity(step) {
   const m = currentLook()?.intensity?.[step];
   return (typeof m==='number' && m>0) ? Math.min(1, m) : 1;
 }
 
-// The guidance sentence for this step under the selected look. The focal step
-// gets the stronger, look-specific wording, so Makeup Look + Focal Point read
-// as one instruction (e.g. School + Lips vs Party / Glam + Lips).
+// Guidance sentence for this step under the selected look (stronger on the focal step).
 function lookNote(step) {
   const l=currentLook(); if (!l) return '';
   const focalStep = STATE.focalData?.[STATE.focal]?.mapStep || FOCAL_TO_STEP[STATE.focal];
@@ -413,9 +327,7 @@ function lookNote(step) {
   return txt ? `  ${l.label}: ${txt}` : '';
 }
 
-// Per-step rendering strength for the selected variation, scaled by the selected
-// makeup look. Falls back to the focal-point weighting when no variation has
-// been chosen yet.
+// Rendering strength for this step: the chosen variation scaled by the makeup look.
 function styleIntensity(step, style) {
   const s = style===undefined ? STATE.style : style;
   // Never below 0.18, so a soft look still renders a visible guide.
@@ -432,56 +344,22 @@ function styleIntensity(step, style) {
   return scale((FALLBACK[STATE.focal]||FALLBACK.lips)[step] ?? 0.5);
 }
 
-// ═════════════════════════════════════════
-//  COMPLETE-LOOK TRY-ON STRENGTH
-//
-//  styleIntensity() above is a GUIDE weight:
-//  it decides how strongly an outline is
-//  drawn and how much product the quality
-//  check should expect, and a faint non-focal
-//  outline is correct there.
-//
-//  The virtual try-on is a different job. Fed
-//  those same weights as opacity, the three
-//  non-focal zones rendered at 0.10-0.32 alpha
-//  and vanished, so the face read bare and
-//  pale with makeup only on the focal feature.
-//
-//  So the try-on has its own model:
-//    * the makeup look sets the OVERALL
-//      strength of the whole face;
-//    * every zone is always painted, so the
-//      result is a complete look;
-//    * the focal zone gets the full strength
-//      and the rest a fixed share of it, so the
-//      focal point is the main emphasis rather
-//      than the only makeup;
-//    * the chosen variation still nudges the
-//      result, so the three previews differ;
-//    * the total can never exceed 1.00, which
-//      is the renderer's existing, already
-//      tuned maximum. Nothing here touches
-//      face geometry, skin texture or facial
-//      proportions - only makeup colour is
-//      composited, so identity is preserved.
-// ═════════════════════════════════════════
+// ── Try-on strength ──
+// The try-on has its own weights: the look sets the overall strength, every zone
+// is always painted, and the focal zone leads. Never above 1.00.
 const LOOK_STRENGTH = {
   school:           0.74,   // light, fresh, natural
   professional:     0.82,   // clean, polished, moderate
   date_casual_glam: 0.90,   // soft glam, flattering
   party_glam:       1.00,   // defined and glamorous, still realistic
 };
-// Share of the overall strength given to the zones that are NOT the focal point.
-// High enough that the complete look always reads, low enough that the focal
-// feature still visibly leads.
+// Share of the strength given to the non-focal zones.
 const NON_FOCAL_SHARE = 0.74;
-// Per-zone trim. At the same alpha a contour shadow and a brow fill read far
-// heavier than a blush, so they are held back to keep the result believable.
+// Per-zone trim: contour and brows read heavier than blush at the same alpha.
 const ZONE_TRIM = { lips:1.00, blush:0.98, eyebrows:0.92, contour:0.80 };
 // How much of the result the chosen style variation is allowed to move.
 const VARIATION_SPAN = 0.14;
-// Per-step "Compare My Look" preview: how far the other zones are dimmed so the
-// step under review leads without the rest of the face going bare.
+// Per-step preview: how much the other zones are dimmed.
 const STEP_PREVIEW_DIM = 0.62;
 
 function tryOnIntensity(step, style) {
@@ -490,55 +368,45 @@ function tryOnIntensity(step, style) {
   const base = s * (step===focalStep ? 1 : NON_FOCAL_SHARE) * (ZONE_TRIM[step] ?? 1);
   const raw  = Math.min(1, styleIntensity(step, style));
   const v    = base * (1 - VARIATION_SPAN + VARIATION_SPAN*raw);
-  // Floor keeps every zone present (no bare, pale areas); ceiling keeps the
-  // renderer at or below the strength it already produced before this change.
+  // Keep every zone visible without going above the tuned maximum.
   return Math.max(0.32, Math.min(1, v));
 }
 
-// Coverage level (1=sheer, 2=balanced, 3=full) for a step under the chosen
-// variation. This is the single source of truth used by the variation cards,
-// the step instructions and the amount check, so they always agree.
+// Coverage level (1 sheer, 2 balanced, 3 full) for a step. Used by the variation
+// cards, the step instructions and the amount check.
 function coverageLevel(step) {
-  // Sheer / balanced / full describes the chosen VARIATION, so the three
-  // variation cards always read 1-2-3 and the step screen agrees with them.
-  // The makeup look's own weighting is divided back out here - it still applies
-  // to the AR rendering, the reference guide and the accepted amount band, but
-  // it must not collapse all three variations onto the same label.
+  // Coverage describes the variation, so the look's own weighting is divided out here.
   const c=styleIntensity(step)/(lookIntensity(step)||1);
   return c<0.7 ? 1 : c<0.92 ? 2 : 3;
 }
 
-// A short sentence appended to the step instruction telling the user how much
-// of the recommended product to apply for their selected variation.
+// Sentence telling the user how much product to apply.
 function coverageNote(step) {
   if (!STATE.style) return '';
   const words=['', 'sheer, light coverage', 'medium, buildable coverage', 'full, built-up coverage'];
   return `  Aim for ${words[coverageLevel(step)]} (${STATE.style.name}).`;
 }
 
-// ─────────────────────────────────────────
-//  SCREEN NAVIGATION
-// ─────────────────────────────────────────
+// ── Screen navigation ──
 function goTo(id) {
   document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
   document.getElementById(id)?.classList.add('active');
   if (id==='screen-camera') {
     STATE.detectFrame=0;
-    STATE.accDismissedAt=0;
     STATE.accActive=[];
     STATE.accPosStreak=0;
     STATE.accNegStreak=0;
-    STATE.accDismissedForSession=false;
-    STATE.readyStreak=0;
     STATE.countdownStart=0;
     STATE.detectLm=null;
-    // "Retake" must genuinely re-analyse: clear the tone, the captured still
-    // and the detect button, otherwise the screen reopens already-complete.
+    // Retake must re-analyse, so clear the previous capture.
     STATE.toneKey=null;
     STATE.captureCanvas=null;
     STATE.captureLm=null;
     STATE.captureArmed=false;
     STATE.baseline=null;
+    STATE.countdownPose=null; STATE.lastPose=null; STATE.cancelNote=null;
+    leavePhotoReview();
+    STATE.meshPaused=false;
     const db=document.getElementById('btn-detect');
     if (db){ db.style.display=''; db.textContent='Detect My Face'; db.onclick=startDetection; db.disabled=true; }
     const cb=document.getElementById('btn-capture');
@@ -552,20 +420,17 @@ function goTo(id) {
     initCamera();
   } else if (id!=='screen-step') stopStream();
 
-  // The style and foundation screens work from the captured still, not the
-  // live feed, so the camera stays off until the AR guide actually begins.
+  // Style and foundation screens use the captured photo, so the camera stays off.
   if (id==='screen-style')      { stopTryOn(); renderStyleScreen(); }
   if (id==='screen-foundation') { stopTryOn(); renderFoundationScreen(); }
 
-  // Returning to the makeup-look screen: restore the current choice so the
-  // Continue button is live and the card still reads as selected.
+  // Coming back: keep the chosen look selected.
   if (id==='screen-look' && STATE.look){
     const card=document.querySelector(`.look-card[data-look="${STATE.look}"]`);
     if (card) selectLook(STATE.look, card);
   }
 
-  // Returning to the focal screen after analysis: restore the current choice
-  // and wire the button to jump straight back to the (new) recommendations.
+  // Coming back after analysis: keep the choice and go straight to the new recommendations.
   if (id==='screen-focal'){
     updateLookBadges();
     if (STATE.focal){
@@ -575,9 +440,7 @@ function goTo(id) {
   }
 }
 
-// ─────────────────────────────────────────
-//  PARTICLES
-// ─────────────────────────────────────────
+// ── Particles ──
 function initParticles() {
   const canvas=document.getElementById('particles-bg'), ctx=canvas.getContext('2d');
   let W,H,P=[];
@@ -591,15 +454,10 @@ function initParticles() {
   })();
 }
 
-// ─────────────────────────────────────────
-//  MAKEUP LOOK SELECTION
-//  Same interaction and the same card markup
-//  as the focal grid below, one screen earlier.
-// ─────────────────────────────────────────
+// ── Makeup look selection ──
 function selectLook(look, el) {
   STATE.look=look;
-  // Coverage depends on the look, so clear the chosen variation and let the
-  // Variation screen rebuild - exactly as changing the focal point does.
+  // Coverage depends on the look, so the variation is picked again.
   STATE.style=null;
   document.querySelectorAll('.look-card').forEach(c=>c.classList.remove('selected'));
   el.classList.add('selected');
@@ -612,23 +470,19 @@ function selectLook(look, el) {
 function updateLookBadges() {
   const label=currentLookLabel();
   ['look-badge-label','look-badge-label-shades'].forEach(id=>{
-    const el=document.getElementById(id); if (el) el.textContent=label||'-';
+    const el=document.getElementById(id); if (el) el.textContent=label||'Not chosen';
   });
   document.querySelectorAll('.look-badge-wrap').forEach(w=>{
     w.style.display = label ? '' : 'none';
   });
 }
 
-// ─────────────────────────────────────────
-//  FOCAL SELECTION
-// ─────────────────────────────────────────
+// ── Focal selection ──
 function selectFocal(focal, el) {
   STATE.focal=focal;
-  // Changing the focal point clears the previously chosen variation so the
-  // Shades / Variation screens rebuild fresh for the new focal.
+  // A new focal point means the variation is picked again.
   STATE.style=null;
-  // Scoped to the focal screen: the makeup-look cards reuse the same card class
-  // for identical styling, and must keep their own selected state.
+  // Only the focal cards (the look cards share the same class).
   document.querySelectorAll('#screen-focal .focal-card').forEach(c=>c.classList.remove('selected'));
   el.classList.add('selected');
   const btn=document.getElementById('btn-to-camera');
@@ -644,12 +498,8 @@ function selectFocal(focal, el) {
   }
 }
 
-// ─────────────────────────────────────────
-//  CAMERA SETUP
-// ─────────────────────────────────────────
-// One place that opens the webcam, so every screen asks for the same mode.
-// A steady 30fps is requested because a dim room makes webcams stretch their
-// exposure and drop to a few frames a second, which reads as a frozen mirror.
+// ── Camera setup ──
+// One place that opens the webcam. 30 fps is requested so a dim room doesn't drop the frame rate.
 async function openCamera() {
   const stream=await navigator.mediaDevices.getUserMedia({video:{
     width:{ideal:640}, height:{ideal:480}, facingMode:'user', frameRate:{ideal:30}
@@ -658,9 +508,7 @@ async function openCamera() {
   return stream;
 }
 
-// Best effort: keep auto-exposure and auto white balance on where the webcam
-// exposes those controls. Behind tinted mirror glass the camera gets far less
-// light, and a camera stuck in a manual mode shows a dark, noisy picture.
+// Keep auto exposure and white balance on where supported (the mirror glass cuts a lot of light).
 function tuneCamera(stream) {
   try {
     const track=stream.getVideoTracks()[0];
@@ -672,10 +520,7 @@ function tuneCamera(stream) {
   } catch(e){}
 }
 
-// Reusable offscreen canvases for per-frame pixel reads. Creating a fresh
-// canvas every frame churned memory, and the garbage collector's pauses
-// showed up as camera stutter. willReadFrequently keeps them on the CPU so
-// getImageData doesn't have to wait for the GPU.
+// Reused offscreen canvases for per-frame pixel reads (kept on the CPU so reads are fast).
 const _scratch={};
 function scratchCtx(key, w, h) {
   let c=_scratch[key];
@@ -685,12 +530,7 @@ function scratchCtx(key, w, h) {
   return c;
 }
 
-// Feeds an already-playing <video> to FaceMesh, one new frame at a time.
-// This replaces MediaPipe's Camera helper: its start() opens a SECOND webcam
-// stream and swaps video.srcObject mid-play. That re-fired loadedmetadata
-// (resetting the screen to "Camera ready" and stacking lighting timers) and on
-// some webcams stalled the feed entirely, leaving the last overlay frozen on
-// screen. Returns {stop} so it drops into STATE.camera unchanged.
+// Feeds the playing <video> to FaceMesh one new frame at a time. Returns {stop}.
 function startMeshLoop(video, onFrame) {
   let stopped=false, busy=false, lastT=-1, raf=0;
   function tick(){
@@ -704,11 +544,8 @@ function startMeshLoop(video, onFrame) {
   return { stop(){ stopped=true; cancelAnimationFrame(raf); } };
 }
 
-// FaceMesh downloads ~5 MB of model files on first use - measured at over 30s
-// on a slow connection, during which the camera shows but nothing responds.
-// One instance is therefore always kept warm in the background: created at
-// startup, handed to the next camera screen, and replaced whenever a camera
-// screen closes, so no screen ever waits on a cold download or WASM compile.
+// FaceMesh takes a while to download and start, so one instance is kept warm in the
+// background and handed to the next camera screen.
 let _warmMesh=null;
 function prewarmMesh() {
   if (_warmMesh || typeof FaceMesh==='undefined') return;
@@ -764,9 +601,7 @@ function stopStream() {
   setTimeout(prewarmMesh, 500);
 }
 
-// ─────────────────────────────────────────
-//  LIGHTING CHECK
-// ─────────────────────────────────────────
+// ── Lighting check ──
 function startLightingCheck() {
   const video=document.getElementById('video');
   const warn=document.getElementById('light-warn');
@@ -775,6 +610,7 @@ function startLightingCheck() {
   if (STATE.lightTimer) clearInterval(STATE.lightTimer);
   STATE.lightTimer=setInterval(()=>{
     if (!STATE.stream) return;
+    if (STATE.reviewing){ warn.classList.add('hide'); return; }   // a still photo is on screen
     try {
       tctx.drawImage(video,0,0,64,48);
       const d=tctx.getImageData(0,0,64,48).data;
@@ -795,8 +631,7 @@ function startLightingCheck() {
 }
 
 function checkStepLighting(video) {
-  // Room light doesn't change 30 times a second, and reading a video frame
-  // back costs ~10 ms, so check about 3 times a second.
+  // Light changes slowly and reading a frame is costly, so check about 3 times a second.
   const now=performance.now();
   if (now-(STATE.stepLightAt||0)<300) return;
   STATE.stepLightAt=now;
@@ -827,23 +662,8 @@ function checkStepLighting(video) {
   } catch(e){}
 }
 
-// ═════════════════════════════════════════
-//  TEACHABLE-MACHINE CLASSIFIER LOADER
-//
-//  A drop-in slot for Google Teachable
-//  Machine image models (which are MobileNet
-//  under the hood - exactly what Objective 9
-//  specifies). Train in the browser, export
-//  "TensorFlow.js", drop the files into the
-//  matching models/… folder, and the app
-//  uses the model automatically. If the
-//  folder is empty, the existing pixel
-//  heuristic runs instead - nothing breaks.
-//
-//  See models/HOW-TO-TRAIN.md for the full
-//  workflow and the exact class-label names
-//  each slot expects.
-// ═════════════════════════════════════════
+// ── Trained model slots (trainer.html / Teachable Machine) ──
+// If a slot's folder is empty, the pixel rules run instead. See models/HOW-TO-TRAIN.md.
 const TM_MODELS = {
   // slot name → { url, input size, and the label that means "positive" }
   glasses:   { url:'models/glasses/model.json',   input:224, positive:'glasses' },
@@ -851,10 +671,7 @@ const TM_MODELS = {
 };
 const _tm = {};   // name → { state:'idle|loading|ready|absent', model, labels }
 
-// Warms a model through the exact steps the camera uses (canvas -> pixels ->
-// scale -> predict -> async read). The old tf.zeros() warm-up skipped the
-// image-conversion steps, so their ~0.5 s GPU setup landed on the first
-// camera frame instead and froze the capture screen.
+// Warms a model through the same steps the camera uses, so the first real frame doesn't freeze.
 async function warmModel(model, size) {
   const c=document.createElement('canvas'); c.width=size; c.height=size;
   const out=tf.tidy(()=>model.predict(
@@ -869,8 +686,7 @@ async function loadTMModel(name) {
   if (slot.state!=='idle') return slot.state;
   if (typeof tf==='undefined'){ slot.state='absent'; return slot.state; }
   slot.state='loading';
-  // A model trained on this device with trainer.html comes first: it
-  // was recorded through this mirror's own camera and glass.
+  // A model trained on this device with trainer.html comes first.
   try {
     slot.model=await tf.loadLayersModel(localModelKey(name));
     await warmModel(slot.model, cfg.input);
@@ -900,14 +716,9 @@ async function loadTMModel(name) {
 // Kick off loading for every declared model (called once at startup).
 function initTMModels(){ Object.keys(TM_MODELS).forEach(loadTMModel); }
 
-// Runs a loaded classifier on a face-region crop. Returns the positive-class
-// probability in [0,1], or null when no model is installed for this slot.
-//
-// The model runs at most every TM_INTERVAL ms per slot and never blocks a
-// frame: the result is read back from the GPU asynchronously, and the latest
-// answer is returned meanwhile. The old synchronous dataSync() made the camera
-// loop wait for the GPU on every call, which is what froze the capture screen
-// once the trained models were installed.
+// Runs a slot's model on the face crop and returns the positive-class probability.
+// null = no model installed. Runs at most every TM_INTERVAL ms and reads the result
+// asynchronously, so it never blocks a camera frame.
 const TM_INTERVAL = 120;
 function classifyTM(name, image, lm) {
   const cfg=TM_MODELS[name];
@@ -930,34 +741,23 @@ function classifyTM(name, image, lm) {
       }
     } catch(e){ slot.pending=false; console.warn(`[tm:${name}] inference failed:`, e.message); }
   }
-  // undefined = the model is installed but its answer is still on its way.
-  // Callers then wait rather than falling back to the pixel rules, which would
-  // give a different answer for one frame. An answer older than a second
-  // belongs to a different moment, unless a fresh one is already coming.
+  // undefined = model installed but the first answer isn't back yet. Answers older than
+  // a second are ignored unless a new one is on its way.
   if (slot.prob==null) return undefined;
   return (now-slot.probAt<1000 || slot.pending) ? slot.prob : undefined;
 }
 
-// ─────────────────────────────────────────
-//  ACCESSORIES DETECTION
-//  Model-first: a trained Teachable Machine
-//  glasses classifier is used when present;
-//  otherwise the pixel heuristic below runs.
-//  Mask  → mouth area desaturated vs forehead.
-// ─────────────────────────────────────────
+// ── Accessories (glasses) ──
+// Trained model first, pixel rules otherwise.
 function checkAccessories(image, lm) {
   try {
-    // ── Glasses: trained model takes precedence when installed ──
-    // Asked first, so the pixel copy below (~10 ms) is only made when the
-    // heuristic actually needs it.
+    // Trained model first; the pixel copy below is only needed for the fallback.
     const glassesProb=classifyTM('glasses', image, lm);
     if (glassesProb!==null) return glassesProb>=0.6 ? ['glasses'] : [];   // undefined: answer pending
 
     const vW=image.width||640, vH=image.height||480;
     const tctx=scratchCtx('frame', vW, vH); tctx.drawImage(image,0,0,vW,vH);
-    // One read of the whole frame, then patches are picked out of it. Reading
-    // each small patch separately was ~25 reads per check, and on some
-    // machines every read is a slow round trip.
+    // One read of the whole frame, then patches are taken from it.
     const all=tctx.getImageData(0,0,vW,vH).data;
     // Patch average around each landmark - a single pixel is far too noisy to
     // decide on. Radius scales with face size so it works at any distance.
@@ -979,39 +779,22 @@ function checkAccessories(image, lm) {
     const fhBr=fh.br();
     const found=[];
 
-    // ── Pixel-heuristic fallback (no trained model installed) ──
-    // Only meaningful on a reasonably frontal face. When the head turns, the
-    // temple sample points slide onto HAIR - dark hair then reads as several
-    // "dark frame" signals at once, which caused earlier false alarms.
+    // Pixel-rule fallback. Only on a frontal face, since turned temples read hair as frames.
     if (faceTurnOffset(lm) <= TURN_OK_ACCESSORY)
       runGlassesHeuristic(px, fhBr, found);
 
-    // NOTE: face masks are handled by occlusionCheck (colour-balance based,
-    // lighting-tolerant) which reliably blocks the Capture button. The old
-    // pixel mask heuristic here compared the LIPS against the forehead, so
-    // naturally red lips or a shadowed lower face read as a "mask" - a false
-    // positive that wrongly told users to remove a mask they weren't wearing.
-    // It has been removed; only glasses (which occlusion cannot see) remain.
+    // Face masks are handled by occlusionCheck.
     return found;
   } catch(e){return [];}
 }
 
-// Pixel-heuristic glasses scoring. This is the fallback whenever no trained
-// glasses model is installed. Since the policy is HARD-BLOCK on any detection,
-// this tuning favours recall over precision within the constraints below.
-//
-// Tuned specifically for the failure case the old detector missed:
-// clear-lens metal-rimmed frames. The old detector required the lens brightness
-// anomaly to fire, and that cue is silent on clear lenses - so a whole class
-// of glasses was invisible to it. This version drops the lens dependency and
-// leans on signals that survive thin metal / clear lens / hair-covered temples.
+// Pixel-rule glasses scoring, used when no trained model is installed.
+// Works on thin metal and clear-lens frames too.
 function runGlassesHeuristic(px, fhBr, found) {
   // ── Clean baselines ──────────────────────────────────────────────
   const cheek = px([116,345,50,280]);
   const ckBr  = cheek ? cheek.br() : fhBr;
-  // Under-eye pouches only. The old sampler mixed in the temples (234, 454)
-  // which are hair on many people - that biased the baseline dark and hid
-  // the very rim signals below.
+  // Under-eye pouches only (the temples are often hair).
   const underEye = px([145,144,163,374,373,390]);
   const ueBr = underEye ? underEye.br() : ckBr;
   // Forehead skin ONLY (no brow indices). This becomes the "clean skin at
@@ -1021,11 +804,8 @@ function runGlassesHeuristic(px, fhBr, found) {
 
   let score = 0;
 
-  // ── Signal A: Nose-bridge break ─────────────────────────────────
-  // Glasses hardware between the two lenses creates a darker strip than
-  // the forehead skin. Thresholds tightened: on a bare face the natural
-  // brow shadow can produce a small (<18) diff that used to fire the weak
-  // tier and false-positive; only a genuine hardware-scale diff scores now.
+  // ── Signal A: nose-bridge break ──
+  // Frame hardware between the lenses is darker than forehead skin.
   const bridgeBand = px([168, 6, 197, 193, 417]);
   if (bridgeBand){
     const diff = fhCleanBr - bridgeBand.br();
@@ -1033,10 +813,7 @@ function runGlassesHeuristic(px, fhBr, found) {
     else if (diff > 16) score += 1;    // weak: possible thin frame
   }
 
-  // ── Signal B: Lower rim on the cheek ────────────────────────────
-  // Lower lens edge sits on bare cheek skin. Thresholds tightened so
-  // natural under-eye shadow (which is asymmetric on many faces) doesn't
-  // pass both sides at once.
+  // ── Signal B: lower rim on the cheek ──
   const lLowerRim = px([119, 118, 117, 111]);
   const rLowerRim = px([348, 347, 346, 340]);
   if (lLowerRim && rLowerRim){
@@ -1046,10 +823,8 @@ function runGlassesHeuristic(px, fhBr, found) {
     else if (dL > 10 && dR > 10) score += 1;
   }
 
-  // ── Signal C: Lens reflectivity ─────────────────────────────────
-  // Glass catches ambient light differently than skin. Tightened: needs
-  // BOTH a bright reflection AND consistent off-baseline, so a single
-  // bright spot from a window on bare skin doesn't count.
+  // ── Signal C: lens reflection ──
+  // Needs a bright reflection and a consistent offset, so one bright spot doesn't count.
   const lLensCentre = px([159, 145]);
   const rLensCentre = px([386, 374]);
   if (lLensCentre && rLensCentre){
@@ -1065,42 +840,29 @@ function runGlassesHeuristic(px, fhBr, found) {
   if (lOuter && rOuter && lOuter.br() < ckBr - 16 && rOuter.br() < ckBr - 16)
     score += 1;
 
-  // ── Trigger ─────────────────────────────────────────────────────
-  // Threshold 3 (was 2). This means at minimum:
-  //   * one signal at strong tier (2) + one at any tier (1), OR
-  //   * three weak-tier signals simultaneously.
-  // A bare face's natural darkness might trigger one weak signal; hitting
-  // two independent, symmetric ones at strong tiers is very rare without
-  // an actual frame present. That's the sweet spot between missing thin
-  // metal (the old failure mode) and flagging a bare face (the current one).
+  // ── Trigger ──
+  // Needs a score of 3: one strong signal plus one more, or three weak ones.
   if (score >= 3) found.push('glasses');
 }
 
 function showGlassesWarn(msg) {
-  // Session-dismiss is intentionally NOT respected any more. Glasses hard-block
-  // Capture and the user should not be able to silence a blocking condition -
-  // the banner must stay visible until the glasses are actually removed.
+  // Glasses block Capture, so the banner can't be dismissed.
   const el=document.getElementById('glasses-warn');
   if(!el) return;
   const sp=el.querySelector('span');
   if(sp&&msg) sp.textContent=msg;
   el.classList.remove('hide');
 }
-function hideGlassesWarn(userDismissed) {
+function hideGlassesWarn() {
   const el=document.getElementById('glasses-warn');
   if(el) el.classList.add('hide');
-  // Dismiss button is retained for the DOM but does not silence future warnings
-  // (the detection loop re-shows it as long as glasses are present).
 }
 
-// ─────────────────────────────────────────
-//  MEDIAPIPE - DETECTION SCREEN
-// ─────────────────────────────────────────
+// ── Detection screen ──
 function startDetection() {
   document.getElementById('cam-title').textContent='Scanning your face...';
   document.getElementById('cam-sub').textContent='Keep still and look straight ahead';
-  // Hand over to the manual Capture button - the system never photographs
-  // the user on its own timing.
+  // Capture is always started by the user, never automatically.
   const d=document.getElementById('btn-detect');
   if (d) d.style.display='none';
   const cap=document.getElementById('btn-capture');
@@ -1118,6 +880,7 @@ function startDetection() {
 }
 
 function onDetectResults(results) {
+  if (STATE.reviewing) return;   // a frame already in flight when the photo was taken
   const canvas=document.getElementById('overlay');
   const video=document.getElementById('video');
   const {W,H,effW,effH,ox,oy}=syncOverlay(canvas,video);
@@ -1131,17 +894,14 @@ function onDetectResults(results) {
     STATE.lastLandmarks=lm;
     pFace.textContent='Face: Detected ✓'; pFace.classList.add('ok');
     pLM.textContent='Landmarks: 468 ✓';   pLM.classList.add('ok');
-    // Smooth the detection overlay too - it was drawing raw landmarks, which
-    // jitter frame to frame and shake noticeably when the head turns.
+    // Smoothed so the overlay doesn't shake.
     const dlm=smoothDetectLm(lm);
 
     ctx.save(); ctx.translate(-ox,-oy);
-    // Landmarks and guides track the face at every angle and are never hidden.
-    // Past a comfortable frontal range they only dim, because landmark depth
-    // error grows as the head turns - they still follow the face.
+    // Guides always follow the face and only dim as the head turns.
     ctx.globalAlpha = turnVisibility(lm);
     ctx.fillStyle='rgba(201,149,106,0.22)';
-    // One path for all 468 dots - a fill per dot was hundreds of draw calls a frame.
+    // One path for all 468 dots.
     ctx.beginPath();
     dlm.forEach(pt=>{const x=pt.x*effW, y=pt.y*effH; ctx.moveTo(x+1.4,y); ctx.arc(x,y,1.4,0,Math.PI*2);});
     ctx.fill();
@@ -1150,23 +910,12 @@ function onDetectResults(results) {
     drawBlush  (ctx,dlm,effW,effH,'rgba(230,150,140,0.55)','rgba(230,150,140,0.10)',2);
     drawContour(ctx,dlm,effW,effH,'rgba(190,140,80,0.6)','rgba(170,120,60,0.22)',2.5);
     ctx.restore();
-    // Glasses / accessory check - BLOCKING. STATE.accActive drives the hard
-    // gate in assessReadiness. Polled every 4 frames (~0.25s at 30fps) rather
-    // than every 10, so a real pair of glasses shows the block within about
-    // half a second of the face becoming frontal. The pos streak was 2 (=1.5s
-    // latency after the throttle change); dropped to 1 so a single confident
-    // heuristic hit locks the block on. Neg streak stayed at 2 so a transient
-    // one-frame flicker doesn't clear the block.
+    // Glasses check every 4th frame. accActive blocks Capture in assessReadiness.
     STATE.detectFrame=(STATE.detectFrame||0)+1;
     if(STATE.detectFrame%4===1){
       const acc = (faceTurnOffset(lm) <= TURN_OK_ACCESSORY)
         ? checkAccessories(results.image, lm) : (STATE.accActive||[]);
-      // Two-frame streaks in both directions so a single noisy frame can't
-      // set OR clear the state. Poll interval is 4 frames (~130ms), so
-      // detection latency and clearance latency are both ~260ms, fast
-      // enough to feel responsive, slow enough to filter one-frame noise.
-      // Single-frame confirmation (pos>=1) was tried last round and was
-      // exactly what caused the current false-positive complaint.
+      // Two agreeing reads are needed to set or clear it, so one noisy frame can't flip it.
       if(acc.length>0){
         STATE.accPosStreak=(STATE.accPosStreak||0)+1; STATE.accNegStreak=0;
         if(STATE.accPosStreak>=2) STATE.accActive=acc;
@@ -1191,13 +940,8 @@ function onDetectResults(results) {
   }
 }
 
-// Landmark filter shared by the detection and step overlays ("one euro"
-// style). How much it smooths depends on how fast the face is moving: when
-// the face is still it averages heavily so the guides don't shimmer, and as
-// soon as the face moves it opens up so the guides keep up with almost no
-// lag. The old filter only ever moved 8-34% of the way per frame, which is
-// why the guides trailed behind the face. It is time-based, so it behaves
-// the same at 15 fps on a slow laptop as at 30 fps.
+// Landmark filter for the detection and step overlays ("one euro" style): smooths
+// heavily while the face is still and follows quickly when it moves. Time-based.
 const LM_MIN_CUTOFF = 0.5;     // Hz while still - lower is steadier
 const LM_BETA       = 25;      // how quickly it opens up with speed - higher is less lag
 const LM_D_CUTOFF   = 3;       // Hz, smoothing of the speed estimate itself
@@ -1220,10 +964,8 @@ function smoothLandmarks(prev, lm, turnVis, key) {
   }
   const dt=Math.min(0.1, Math.max(0.005, (now-f.t)/1000));
   f.t=now;
-  // Face speed from how far the centre of the stable points (nose, cheeks,
-  // forehead, chin, eye corners, mouth corners) moved. Averaging them first
-  // cancels per-point sensor noise, so a still face reads as still. Turning
-  // is caught by the nose moving against the cheeks.
+  // Face speed from the centre of stable points (averaging cancels sensor noise).
+  // Turning shows up as the nose moving against the cheeks.
   let cx=0, cy=0, turn=0;
   LM_ANCHORS.forEach(i=>{ cx+=lm[i].x-prev[i].x; cy+=lm[i].y-prev[i].y; });
   cx/=LM_ANCHORS.length; cy/=LM_ANCHORS.length;
@@ -1245,19 +987,9 @@ function smoothDetectLm(lm) {
   return STATE.detectLm;
 }
 
-// ─────────────────────────────────────────
-//  OCCLUSION CHECK
-//  Rejects a face that is partly covered by
-//  a hand, mask, hair or object before the
-//  photo is taken. Works two ways:
-//   1) any key landmark projecting outside
-//      the frame → part of the face is off-
-//      screen or has been pushed out;
-//   2) the bare-skin zones (forehead, both
-//      cheeks, nose, chin) should share one
-//      tone - a covering makes a zone diverge
-//      strongly from the rest.
-// ─────────────────────────────────────────
+// ── Occlusion check ──
+// Blocks capture if part of the face is covered or out of frame: key points must be
+// in frame, and the bare-skin zones should all share one skin colour.
 function occlusionCheck(image, lm) {
   try {
     // 0) Trained model takes precedence when installed.
@@ -1267,9 +999,7 @@ function occlusionCheck(image, lm) {
         ? {occluded:true, reason:'Keep your whole face visible'}
         : {occluded:false, reason:''};
 
-    // 1) Core makeup landmarks out of frame. Forehead crown (10) and chin tip
-    //    (152) are intentionally excluded - they sit at the top/bottom edge on
-    //    a well-framed close-up and are not needed for makeup.
+    // 1) Key makeup points must be in frame (forehead top and chin tip may touch the edge).
     const key=[234,454,1,4,61,291,133,362];
     for (const i of key){
       const p=lm[i]; if(!p) continue;
@@ -1307,12 +1037,7 @@ function occlusionCheck(image, lm) {
     const list=Object.entries(zones).filter(([,v])=>v);
     if (list.length<4) return {occluded:true, reason:'Keep your whole face in view'};
 
-    // Compare zones by CHROMATICITY (hue/colour balance), not brightness.
-    // A lamp or window on one side makes a cheek darker than the forehead, but
-    // it is still the SAME skin colour - so comparing raw brightness wrongly
-    // flagged a shadow as a covering. Normalised r/g/b ratios ignore how bright
-    // a zone is and only react to a genuine colour change (a mask, an object,
-    // hair), which is what "covered" actually means.
+    // Compare colour balance, not brightness, so a shadow isn't read as a covering.
     const chroma=v=>{ const s=v.r+v.g+v.b||1; return {r:v.r/s, g:v.g/s, b:v.b/s}; };
     const ch=list.map(([name,v])=>[name, chroma(v)]);
     const medC=k=>{const a=ch.map(([,c])=>c[k]).sort((p,q)=>p-q);return a[a.length>>1];};
@@ -1332,22 +1057,11 @@ function occlusionCheck(image, lm) {
   } catch(e){ return {occluded:false, reason:''}; }
 }
 
-// ─────────────────────────────────────────
-//  CAPTURE READINESS
-//  The reference photo is only taken when
-//  the user is actually posed for it, and
-//  only after a visible countdown.
-// ─────────────────────────────────────────
-// ─────────────────────────────────────────
-//  EXPRESSION GATE
-//  Blocks capture on an open mouth, a stretched grin, a pout, a smirk, closed
-//  or winking eyes, and raised eyebrows. A soft, natural smile passes.
-//  Every measurement is taken in face-aligned pixels (rotated to the eye line)
-//  and divided by the outer eye-corner distance, so the limits hold at any
-//  distance from the mirror and with a slight head tilt. Metrics are smoothed
-//  over a few frames so one noisy frame can't flip the Capture button.
-//  Open the app with ?expr to see the live numbers while tuning these.
-// ─────────────────────────────────────────
+// ── Capture readiness ──
+// ── Expression check ──
+// Blocks an open mouth, big grin, pout, smirk, closed eyes and raised brows.
+// Measured relative to eye distance so it works at any distance. Add ?expr to the
+// URL to see the live numbers.
 const EXPR = {
   mouthOpen:   0.12,  // inner-lip gap. Closed ~0.00-0.02, soft smile with parted lips <0.08
   mouthWide:   0.80,  // corner-to-corner. Neutral ~0.50-0.58, natural smile ~0.60-0.72
@@ -1410,8 +1124,7 @@ function assessReadiness(image, lm) {
   // Head must be genuinely straight on for the photo
   if (faceTurnOffset(lm) > TURN_OK_CAPTURE) return {ok:false, reason:'Face the camera straight on'};
 
-  // Distance: face width should occupy a sensible share of the frame. Upper
-  // bound is generous - filling the portrait frame is good for a makeup mirror.
+  // Distance: face width should take a sensible share of the frame.
   const faceW=Math.abs(lm[454].x-lm[234].x);
   if (faceW < 0.20) return {ok:false, reason:'Move a little closer'};
   if (faceW > 0.95) return {ok:false, reason:'Move back a little'};
@@ -1421,10 +1134,7 @@ function assessReadiness(image, lm) {
   if (Math.abs(nose.x-0.5) > 0.22) return {ok:false, reason:'Centre your face horizontally'};
   if (nose.y < 0.16 || nose.y > 0.86) return {ok:false, reason:'Centre your face vertically'};
 
-  // The MAKEUP features must be inside the frame - eyes, brows, cheeks, nose,
-  // lips. The forehead crown and chin tip touching the top/bottom edge is fine
-  // (we don't apply makeup there), so they are deliberately NOT required. This
-  // is what let a well-framed close-up still be rejected before.
+  // The makeup features must be in frame; forehead top and chin tip may touch the edge.
   const coreIdx=[33,263,133,362,105,334,116,345,61,291,0,17,1];
   for (const i of coreIdx){
     const p=lm[i]; if(!p) continue;
@@ -1436,19 +1146,15 @@ function assessReadiness(image, lm) {
   const roll=Math.abs(lm[234].y-lm[454].y)/(faceW||0.001);
   if (roll > 0.22) return {ok:false, reason:'Keep your head level'};
 
-  // Relaxed, natural expression only - the photo is the bare-face reference
-  // every later step is compared against.
+  // Relaxed expression only: this photo is the bare-face reference for every step.
   const expr=expressionCheck(image, lm);
   if (!expr.ok) return expr;
 
-  // Face must be UNOBSTRUCTED - reject a hand, mask, hair or object over part
-  // of it. All these zones are bare skin before makeup, so they should read as
-  // one consistent tone; a covering makes one zone diverge sharply.
+  // Face must not be covered by a hand, mask, hair or object.
   const occ=occlusionCheck(image, lm);
   if (occ.occluded) return {ok:false, reason:occ.reason};
 
-  // Lighting must be usable or the tone reading is worthless. Measured about
-  // 4 times a second - reading the frame back every frame stalled the camera.
+  // Lighting must be usable. Checked about 4 times a second.
   try {
     const now=performance.now();
     if (now-(STATE.readyLightAt||0)>=250){
@@ -1465,26 +1171,14 @@ function assessReadiness(image, lm) {
     if (avg>212) return {ok:false, reason:'Too bright. Reduce the glare'};
   } catch(e){}
 
-  // Face COVERINGS (mask, hand, object, hair) are caught by occlusionCheck.
-  //
-  // GLASSES hard-block Capture regardless of whether the trained model is
-  // loaded. The pixel heuristic is conservative (needs lens cue + at least one
-  // corroborating cue, only runs on near-frontal faces, and requires a 2-frame
-  // positive streak), so false positives on a bare face should be rare - and
-  // the user explicitly wants no capture path while glasses are detected.
+  // Glasses block Capture whether or not the trained model is loaded.
   if (STATE.accActive && STATE.accActive.includes('glasses')){
     return {ok:false, reason:'Please remove your glasses so your whole face is visible'};
   }
   return {ok:true, reason:''};
 }
 
-// True only when a trained Teachable Machine glasses model is loaded and ready.
-function glassesModelReady() {
-  return typeof _tm!=='undefined' && _tm.glasses && _tm.glasses.state==='ready';
-}
-
 function resetCountdown(msg) {
-  STATE.readyStreak=0;
   STATE.countdownStart=0;
   const sub=document.getElementById('cam-sub');
   if (sub && msg) sub.textContent=msg;
@@ -1492,8 +1186,7 @@ function resetCountdown(msg) {
 
 const COUNTDOWN_MS = 3000;   // 3 · 2 · 1 once the user presses Capture
 
-// Camera-style white flash the instant the photo is taken, so the user knows
-// the capture happened. The frame itself was grabbed before the flash starts.
+// White flash when the photo is taken.
 function cameraFlash() {
   const f=document.createElement('div');
   f.className='capture-flash';
@@ -1505,9 +1198,91 @@ function cameraFlash() {
 
 // Pressing "Capture Photo" starts the countdown - never the system on its own.
 function requestCapture() {
-  if (STATE.toneKey) return;
+  if (STATE.toneKey || STATE.reviewing) return;
   if (!STATE.captureArmed) return;      // button is only live when you're ready
   STATE.countdownStart=Date.now();
+  STATE.countdownPose=null;             // pose is recorded on the first countdown frame
+  STATE.cancelNote=null;
+}
+
+// ── Movement during the countdown ──
+// Moving cancels the photo. Tolerances are fractions of the face width.
+const CAPTURE_MOVE_TOL  = 0.07;   // nose drift since the countdown began
+const CAPTURE_SCALE_TOL = 0.07;   // leaning in or out
+const CAPTURE_TURN_TOL  = 0.05;   // turning the head
+const CAPTURE_SHOT_TOL  = 0.025;  // movement between frames at the moment of the shot (blur)
+
+function facePose(lm, image) {
+  const ar=(image.height||480)/(image.width||640);   // landmark y to x units
+  return { x:lm[1].x, y:lm[1].y*ar, w:Math.abs(lm[454].x-lm[234].x)||0.001, turn:faceTurnOffset(lm) };
+}
+function poseMoved(a, b, tol) {
+  return Math.hypot(b.x-a.x, b.y-a.y)/a.w > tol
+      || Math.abs(b.w/a.w-1) > CAPTURE_SCALE_TOL
+      || Math.abs(b.turn-a.turn) > CAPTURE_TURN_TOL;
+}
+
+function cancelCountdown(reason) {
+  STATE.countdownStart=0; STATE.countdownPose=null; STATE.lastPose=null;
+  const btn=document.getElementById('btn-capture');
+  if (btn){ btn.disabled=true; btn.textContent='Capture Photo'; }
+  // Kept on screen for a moment so the user can read why nothing was taken.
+  STATE.cancelNote={text:`Cancelled. ${reason}`, until:Date.now()+2500};
+}
+
+// ── Photo review ──
+// The photo is shown so the user can keep it or retake it. Tracking pauses meanwhile.
+function enterPhotoReview() {
+  STATE.reviewing=true;
+  STATE.meshPaused=true;
+  const src=STATE.captureCanvas, rv=document.getElementById('capture-review');
+  if (rv && src){
+    rv.width=src.width; rv.height=src.height;
+    rv.getContext('2d').drawImage(src,0,0);
+    rv.hidden=false;
+  }
+  const ov=document.getElementById('overlay');
+  if (ov){ const c=ov.getContext('2d'); c.save(); c.setTransform(1,0,0,1,0,0); c.clearRect(0,0,ov.width,ov.height); c.restore(); }
+  hideGlassesWarn();
+  document.getElementById('light-warn')?.classList.add('hide');
+
+  const pTone=document.getElementById('pill-tone');
+  if (pTone){ pTone.textContent=`Tone: ${formatTone(STATE.toneKey)} ✓`; pTone.classList.add('ok'); }
+  const title=document.getElementById('cam-title'), sub=document.getElementById('cam-sub');
+  if (title) title.textContent='How does this look?';
+  if (sub)   sub.textContent='Keep this photo, or retake it if you want a better one';
+  const btn=document.getElementById('btn-capture');   if (btn) btn.style.display='none';
+  const st=document.getElementById('capture-status'); if (st) st.style.display='none';
+  const d=document.getElementById('btn-detect');
+  if (d){ d.style.display=''; d.textContent='Use This Photo →'; d.disabled=false; d.onclick=usePhoto; }
+  const rt=document.getElementById('btn-retake');     if (rt) rt.style.display='';
+}
+
+function leavePhotoReview() {
+  STATE.reviewing=false;
+  const rv=document.getElementById('capture-review'); if (rv) rv.hidden=true;
+  const rt=document.getElementById('btn-retake');     if (rt) rt.style.display='none';
+}
+
+function usePhoto() {
+  leavePhotoReview();
+  showShades();
+}
+
+// Throws the photo away and goes back to the live camera, ready to capture.
+function retakePhoto() {
+  leavePhotoReview();
+  STATE.toneKey=null; STATE.captureCanvas=null; STATE.captureLm=null; STATE.baseline=null;
+  STATE.countdownStart=0; STATE.countdownPose=null; STATE.lastPose=null;
+  STATE.captureArmed=false; STATE.cancelNote=null;
+  const pTone=document.getElementById('pill-tone');
+  if (pTone){ pTone.textContent='Tone: waiting'; pTone.classList.remove('ok'); }
+  const d=document.getElementById('btn-detect');      if (d) d.style.display='none';
+  const btn=document.getElementById('btn-capture');
+  if (btn){ btn.style.display=''; btn.disabled=true; btn.textContent='Capture Photo'; }
+  const st=document.getElementById('capture-status');
+  if (st){ st.style.display=''; st.className='capture-status'; st.textContent='Looking for your face…'; }
+  STATE.meshPaused=false;
 }
 
 function runCaptureCountdown(ctx, image, lm, W, H, ox, oy) {
@@ -1522,12 +1297,20 @@ function runCaptureCountdown(ctx, image, lm, W, H, ox, oy) {
   if (STATE.countdownStart){
     if (!r.ok){
       // Lost the pose mid-count - cancel, take no photo.
-      STATE.countdownStart=0;
-      if (btn){ btn.disabled=true; btn.textContent='Capture Photo'; }
-      if (status){ status.className='capture-status'; status.textContent=`Cancelled. ${r.reason}`; }
+      cancelCountdown(r.reason);
+      if (status){ status.className='capture-status'; status.textContent=STATE.cancelNote.text; }
       drawCaptureHint(ctx, W, H, ox, oy, r.reason, null);
       return;
     }
+    const pose=facePose(lm, image);
+    if (!STATE.countdownPose) STATE.countdownPose=pose;
+    if (poseMoved(STATE.countdownPose, pose, CAPTURE_MOVE_TOL)){
+      cancelCountdown('You moved. Hold still, then press Capture again');
+      if (status){ status.className='capture-status'; status.textContent=STATE.cancelNote.text; }
+      drawCaptureHint(ctx, W, H, ox, oy, 'You moved. Hold still', null);
+      return;
+    }
+    const prevPose=STATE.lastPose; STATE.lastPose=pose;
     const remain=COUNTDOWN_MS-(Date.now()-STATE.countdownStart);
     if (remain>0){
       const n=Math.ceil(remain/1000);
@@ -1538,35 +1321,38 @@ function runCaptureCountdown(ctx, image, lm, W, H, ox, oy) {
       drawCaptureHint(ctx, W, H, ox, oy, null, n);
       return;
     }
+    // ── The shot itself: still moving at this instant means a blurred photo ──
+    if (prevPose && poseMoved(prevPose, pose, CAPTURE_SHOT_TOL)){
+      cancelCountdown('You moved as the photo was taken. Hold still and try again');
+      if (status){ status.className='capture-status'; status.textContent=STATE.cancelNote.text; }
+      return;
+    }
     // ── Countdown finished: classify tone and freeze the reference frame ──
     const tone=detectToneFromImage(image, lm, W, H);
     if (!tone){
-      STATE.countdownStart=0;
-      if (status) status.textContent='Could not read your skin tone. Please try again';
+      cancelCountdown('Could not read your skin tone. Please try again');
+      if (status) status.textContent=STATE.cancelNote.text;
       return;
     }
     STATE.toneKey=tone;
+    STATE.countdownStart=0; STATE.countdownPose=null; STATE.lastPose=null;
     cameraFlash();
     captureReferenceFrame(image, lm);
     captureBaseline(image, lm);   // bare-face reference for every later step
-
-    const pTone=document.getElementById('pill-tone');
-    if (pTone){ pTone.textContent=`Tone: ${formatTone(tone)} ✓`; pTone.classList.add('ok'); }
-    if (title)  title.textContent='Analysis complete!';
-    if (sub)    sub.textContent='Tap below to see your shade recommendations';
-    if (btn)    btn.style.display='none';
-    if (status) status.style.display='none';
-    const d=document.getElementById('btn-detect');
-    if (d){ d.style.display=''; d.textContent='See My Recommendations →'; d.disabled=false; d.onclick=showShades; }
+    enterPhotoReview();
     return;
   }
 
   // ── Idle: just report whether the user is ready to press Capture ──
-  if (title) title.textContent=r.ok?'Ready when you are':'Get into position';
+  const note=STATE.cancelNote && Date.now()<STATE.cancelNote.until ? STATE.cancelNote.text : '';
+  if (title) title.textContent=note?'Photo cancelled':r.ok?'Ready when you are':'Get into position';
   if (sub)   sub.textContent=r.ok?'Hold a soft, natural smile and press Capture Photo'
                                  :'Adjust your position, then press Capture';
   if (btn)   btn.disabled=!r.ok;
-  if (status){
+  if (note && status){
+    status.className='capture-status'; status.textContent=note;
+    if (r.ok) return;                  // keep the note readable; the button is already live
+  } else if (status){
     status.className='capture-status'+(r.ok?' ready':'');
     status.textContent=r.ok?'✓ Good to go. Press Capture Photo'
                            :`Not ready: ${r.reason}`;
@@ -1574,9 +1360,7 @@ function runCaptureCountdown(ctx, image, lm, W, H, ox, oy) {
   if (!r.ok) drawCaptureHint(ctx, W, H, ox, oy, r.reason, null);
 }
 
-// The overlay canvases are CSS-mirrored (transform:scaleX(-1)) so the mirror
-// reads naturally. Anything textual must therefore be drawn pre-flipped, or it
-// appears backwards to the user. Everything inside this helper is un-mirrored.
+// The overlay canvas is mirrored with CSS, so text is drawn pre-flipped to read correctly.
 function drawMirroredText(ctx, text, cx, cy, font, fill, boxed) {
   ctx.save();
   ctx.translate(cx, cy);
@@ -1611,13 +1395,12 @@ function drawCaptureHint(ctx, W, H, ox, oy, message, count) {
   ctx.translate(-ox,-oy);
   const cx=W/2+ox, cy=H/2+oy;
   if (count!=null){
-    // Modern countdown: a soft ring with a clean geometric numeral (Jost),
-    // lifted off the video with a gentle shadow rather than a heavy outline.
     const rad=Math.min(W,H)*0.16;
     ctx.save();
     ctx.beginPath(); ctx.arc(cx,cy,rad,0,Math.PI*2);
-    ctx.fillStyle='rgba(20,12,10,0.42)'; ctx.fill();
-    ctx.lineWidth=2.5; ctx.strokeStyle='rgba(232,192,128,0.85)'; ctx.stroke();
+    // Berry disc with a pink ring, the same colours as the hint pills.
+    ctx.fillStyle='rgba(58,0,30,0.5)'; ctx.fill();
+    ctx.lineWidth=3; ctx.strokeStyle='rgba(255,111,168,0.9)'; ctx.stroke();
     ctx.restore();
     ctx.save();
     ctx.translate(cx, cy+2); ctx.scale(-1,1);   // cancel the mirror flip
@@ -1628,14 +1411,10 @@ function drawCaptureHint(ctx, W, H, ox, oy, message, count) {
     ctx.fillText(String(count), 0, 0);
     ctx.restore();
   } else if (message){
-    // The glasses message is already shown in full on the top-of-camera banner,
-    // so re-drawing it as an overlay is redundant AND long enough to clip the
-    // narrow phone overlay canvas horizontally. Skip the overlay in that case.
+    // The glasses message already shows on the banner, so it isn't drawn again here.
     const isGlassesMsg = message.toLowerCase().indexOf('glasses')>=0;
     if (!isGlassesMsg){
-      // Fit-to-width: shrink the font so the boxed background stays inside the
-      // canvas on narrow (phone) overlays, same pattern used by the Face-forward
-      // hint on the step screen.
+      // Shrink the font so the pill fits narrow screens.
       const maxW = Math.max(80, W - 28 - 2.2*17);   // minus the pill's side padding
       ctx.save();
       let px = 17;
@@ -1652,29 +1431,21 @@ function drawCaptureHint(ctx, W, H, ox, oy, message, count) {
   ctx.restore();
 }
 
-// ─────────────────────────────────────────
-//  WHITE GUIDE - plain open arc
-// ─────────────────────────────────────────
-// Placement guides are drawn in a bright neutral, never in the product colour.
-// Brow and contour shades are dark browns, so a guide stroked in the shade
-// disappeared against dark brow hair or a shadowed cheek. White reads on every
-// skin tone; the product colour is still used for the soft fill hint.
+// ── Guide lines ──
+// Guides are white so they show on every skin tone; the product colour is only the soft fill.
 const BROW_GUIDE    = 'rgba(255,255,255,0.95)';
 const CONTOUR_GUIDE = 'rgba(255,255,255,0.95)';
 
 function drawWhiteGuide(ctx, pts, lw) {
   ctx.save();
   ctx.beginPath(); softArcPath(ctx,pts);
-  // A fine line traces the lip edge precisely; a heavy one covered the very
-  // edge the user is meant to follow.
+  // Fine line so the lip edge stays visible.
   ctx.strokeStyle='rgba(255,255,255,0.95)'; ctx.lineWidth=lw*0.8;
   ctx.lineJoin='round'; ctx.lineCap='round'; ctx.stroke();
   ctx.restore();
 }
 
-// ─────────────────────────────────────────
-//  DRAW LIPS
-// ─────────────────────────────────────────
+// ── Draw lips ──
 function drawLips(ctx, lm, W, H, strokeColor, fillColor, lw, filterMode, subStep) {
   const outerPts=lmPts(lm,LIP_OUTER_LOOP,W,H);
   const innerPts=lmPts(lm,LIP_INNER,W,H);
@@ -1708,8 +1479,7 @@ function drawLips(ctx, lm, W, H, strokeColor, fillColor, lw, filterMode, subStep
 
   if (!hasSubStep || subStep===2) {
     ctx.save(); ctx.beginPath(); softPolyPath(ctx,outerPts); ctx.fillStyle=strokeColor.replace(/[\d.]+\)$/,'0.22)'); ctx.fill(); ctx.restore();
-    // Thin contrast backing + fine coloured line, so the outline reads clearly
-    // on any skin tone without smothering the lip edge.
+    // Thin dark backing + fine line so the outline reads on any skin tone.
     ctx.save(); ctx.beginPath(); softPolyPath(ctx,outerPts); ctx.strokeStyle='rgba(0,0,0,0.38)'; ctx.lineWidth=lw*1.15+1.2; ctx.lineJoin='round'; ctx.stroke(); ctx.restore();
     ctx.save(); ctx.beginPath(); softPolyPath(ctx,outerPts); ctx.strokeStyle=strokeColor; ctx.lineWidth=lw*0.95; ctx.shadowColor=strokeColor; ctx.shadowBlur=lw*1.4; ctx.lineJoin='round'; ctx.stroke(); ctx.restore();
     ctx.save(); ctx.beginPath(); softPolyPath(ctx,innerPts); ctx.strokeStyle=strokeColor.replace(/[\d.]+\)$/,'0.55)'); ctx.lineWidth=Math.max(0.8,lw*0.5); ctx.lineJoin='round'; ctx.stroke(); ctx.restore();
@@ -1726,12 +1496,8 @@ function drawLips(ctx, lm, W, H, strokeColor, fillColor, lw, filterMode, subStep
   });
 }
 
-// ─────────────────────────────────────────
-//  DRAW BROWS - beginner-friendly guide
-//  Soft fill + dashed outline + 6 upward
-//  hair strokes + gold start dot + tail
-//  arrow showing stroke direction.
-// ─────────────────────────────────────────
+// ── Draw brows ──
+// Soft fill, dashed outline, upward hair strokes, start dot and tail arrow.
 function drawBrows(ctx, lm, W, H, sc, fc, lw) {
   [[BROW_LEFT_TOP,BROW_LEFT_BOTTOM],[BROW_RIGHT_TOP,BROW_RIGHT_BOTTOM]].forEach(([top,bot])=>{
     const topPts = top.map(i=>({x:lm[i].x*W, y:lm[i].y*H}));
@@ -1751,10 +1517,7 @@ function drawBrows(ctx, lm, W, H, sc, fc, lw) {
       ctx.restore();
     }
 
-    // 2. Dashed outline - boundary to stay within.
-    //    Drawn in white over a thin dark backing: the brow shade is a dark
-    //    brown, so stroking the guide in the product colour made it invisible
-    //    against the user's own (dark) eyebrow hair.
+    // 2. Dashed outline in white over a dark backing, so it shows on dark brow hair.
     ctx.save();
     ctx.beginPath(); softPolyPath(ctx,allPts);
     ctx.strokeStyle='rgba(0,0,0,0.45)'; ctx.lineWidth=lw*0.85+1.1; ctx.lineJoin='round';
@@ -1810,9 +1573,7 @@ function drawBrows(ctx, lm, W, H, sc, fc, lw) {
   });
 }
 
-// ─────────────────────────────────────────
-//  DRAW BLUSH - diagonal sweep guide
-// ─────────────────────────────────────────
+// ── Draw blush ──
 function drawBlush(ctx, lm, W, H, sc, fc, lw, coverage) {
   const faceW = Math.abs(lm[234].x - lm[454].x) * W;
   const faceH = Math.abs(lm[10].y  - lm[152].y) * H;
@@ -1904,12 +1665,7 @@ function drawBlush(ctx, lm, W, H, sc, fc, lw, coverage) {
   });
 }
 
-// ─────────────────────────────────────────
-//  NOSE CONTOUR GUIDE
-//  Two slim dashed lines along the sides
-//  of the nose bridge - universal for all
-//  face shapes.
-// ─────────────────────────────────────────
+// ── Nose contour guide ──
 function drawNoseContourGuide(ctx, lm, W, H, sc, fc, lw) {
   const bridge = { x:lm[168].x*W, y:lm[168].y*H };
   const tip    = { x:lm[4].x*W,   y:lm[4].y*H   };
@@ -1941,23 +1697,15 @@ function drawNoseContourGuide(ctx, lm, W, H, sc, fc, lw) {
   });
 }
 
-// ─────────────────────────────────────────
-//  DRAW CONTOUR - face-shape aware guide
-//  Shows nose contour (universal) plus
-//  cheek / jaw sweep paths tailored to the
-//  detected face shape.
-//  Shapes: oval · round · oblong · heart ·
-//          diamond · square
-// ─────────────────────────────────────────
+// ── Draw contour ──
+// Nose sides plus cheek/jaw sweeps chosen by face shape.
 function drawContour(ctx, lm, W, H, sc, fc, lw) {
   const shape = detectFaceShape(lm);
   const faceH = Math.abs(lm[10].y  - lm[152].y) * H;
   const faceW = Math.abs(lm[234].x - lm[454].x) * W;
 
-  // Per-side visibility, same idea as drawBlush: the receding side of a turned
-  // face has landmarks that project onto the wrong anatomy, so the sweep would
-  // draw contour on the visible side. Fade each half by how much of it is
-  // actually facing the camera; this stops the "wrong side" tracking.
+  // Fade each side by how much it faces the camera, so a turned face doesn't draw
+  // contour on the wrong cheek.
   const noseRatio = (lm[1].x - lm[234].x) / ((lm[454].x - lm[234].x) || 0.001);
   const visL = Math.min(1, Math.max(0, (noseRatio - 0.15) / 0.22));
   const visR = Math.min(1, Math.max(0, (0.85 - noseRatio) / 0.22));
@@ -1970,16 +1718,14 @@ function drawContour(ctx, lm, W, H, sc, fc, lw) {
 
   // Reusable quadratic bezier sweep with blurred hint + dashed stroke + arrow + dot
   function sweepStroke(p0, ctrl, p2) {
-    // Soft placement hint. Was lw*9 - a ~36px blurred band that read as one
-    // thick smear instead of a line to follow. Now a narrow, fainter cushion.
+    // Soft, narrow placement hint.
     if (fc) {
       ctx.save(); ctx.filter='blur(3px)'; ctx.globalAlpha=0.55;
       ctx.beginPath(); ctx.moveTo(p0.x,p0.y); ctx.quadraticCurveTo(ctrl.x,ctrl.y,p2.x,p2.y);
       ctx.strokeStyle=fc; ctx.lineWidth=lw*3.2; ctx.lineCap='round'; ctx.stroke();
       ctx.restore();
     }
-    // Fine white sweep line over a thin dark backing, so it stays legible on a
-    // shadowed cheek where the brown product colour vanished.
+    // Fine white line over a dark backing so it shows on a shadowed cheek.
     ctx.save();
     ctx.beginPath(); ctx.moveTo(p0.x,p0.y); ctx.quadraticCurveTo(ctrl.x,ctrl.y,p2.x,p2.y);
     ctx.strokeStyle='rgba(0,0,0,0.40)'; ctx.lineWidth=lw*0.95+1.2; ctx.lineCap='round';
@@ -1999,14 +1745,10 @@ function drawContour(ctx, lm, W, H, sc, fc, lw) {
     ctx.fillStyle='rgba(255,255,255,0.95)'; ctx.fill(); ctx.restore();
   }
 
-  // ① Nose sides - always shown (nose is centerline, both sides visible when
-  // the head is anywhere near frontal).
+  // ① Nose sides, always shown.
   drawNoseContourGuide(ctx, lm, W, H, sc, fc, lw);
 
-  // Per-side wrapper: attenuates alpha for the receding half of the face so
-  // the sweep on that side fades out instead of jumping to the wrong anatomy.
-  // Anything under 0.05 is dropped entirely - a barely-visible ghost still
-  // reads as "there is a line on the wrong cheek".
+  // Fades the receding side; below 0.05 it isn't drawn at all.
   const sided = (startIdx, drawFn) => {
     const v = sideVis(startIdx);
     if (v <= 0.05) return;
@@ -2072,21 +1814,9 @@ function drawContour(ctx, lm, W, H, sc, fc, lw) {
   }
 }
 
-// ─────────────────────────────────────────
-//  SKIN TONE
-// ─────────────────────────────────────────
-// ─────────────────────────────────────────
-//  NEUTRAL WHITE REFERENCE (sclera)
-//  The whites of the eyes are approximately
-//  neutral for every person, so any colour
-//  tint measured there belongs to the
-//  LIGHTING, not the skin. Using it to
-//  white-balance the skin sample is what
-//  makes the tone reading consistent under
-//  a warm bulb, daylight or an LED strip -
-//  the lighting sensitivity flagged in the
-//  skin-tone literature (Mbatha et al.).
-// ─────────────────────────────────────────
+// ── Skin tone ──
+// The whites of the eyes are close to neutral for everyone, so any tint there comes
+// from the lighting. It's used to white-balance the skin sample (Mbatha et al.).
 function sampleScleraWhite(ctx, lm, vW, vH) {
   try {
     const pts=[];
@@ -2118,20 +1848,13 @@ function sampleScleraWhite(ctx, lm, vW, vH) {
         const r=d[q], g=d[q+1], b=d[q+2];
         const mx=Math.max(r,g,b), mn=Math.min(r,g,b);
         const sat = mx===0 ? 0 : (mx-mn)/mx;
-        // Sclera signature: BRIGHT, and the least saturated thing in the eye
-        // region. The tolerance must be loose, because a strong colour cast
-        // tints the sclera itself (a warm bulb pushes it to ~0.35) - that tint
-        // is exactly the signal we are here to measure, so a tight filter threw
-        // the reference away and left no correction at all. The upper bound
-        // must also allow 255, or a clipped sclera is discarded in favour of
-        // the anti-aliased rim pixels blended with the brown iris.
+        // Sclera: bright and the least saturated thing near the eye. Kept loose because a
+        // strong colour cast tints the sclera too, and that tint is what we're measuring.
         if (mx>70 && sat<0.45) cand.push({r,g,b,v:mx,s:sat});
       }
     });
     if (cand.length<8) return null;
-    // Of those, keep the least saturated half: skin and iris are far more
-    // saturated than sclera under any illuminant, so this rejects them
-    // without assuming what the illuminant is.
+    // Keep the least saturated half (skin and iris are more saturated than sclera).
     cand.sort((a,b)=>a.s-b.s);
     const top=cand.slice(0, Math.max(6, Math.floor(cand.length*0.5)));
     const med=k=>{const a=top.map(s=>s[k]).sort((p,q)=>p-q);return a[a.length>>1];};
@@ -2148,8 +1871,7 @@ function detectToneFromImage(image, lm, W, H) {
     const vW=image.width||W, vH=image.height||H;
     const tmp=document.createElement('canvas'); tmp.width=vW; tmp.height=vH;
     const ctx=tmp.getContext('2d',{willReadFrequently:true}); ctx.drawImage(image,0,0,vW,vH);
-    // Well-lit skin only: cheeks + forehead. Deliberately excludes the nose tip
-    // (specular shine) and the bridge/chin (shadow), which skewed the reading.
+    // Well-lit skin only: cheeks and forehead (no nose tip shine or chin shadow).
     const idxs=[234,454,116,345,50,280,205,425,10,151,9,117,346];
     const samples=[];
     idxs.forEach(i=>{
@@ -2172,10 +1894,8 @@ function detectToneFromImage(image, lm, W, H) {
     // ── Lighting normalisation against the neutral sclera reference ──
     const white=sampleScleraWhite(ctx, lm, vW, vH);
     if (white){
-      // 1. Colour cast: per-channel gains that would neutralise the reference
-      //    to grey (von Kries adaptation). Removes the warm-bulb / cool-tube
-      //    bias that made the undertone read the same for everyone. Skipped if
-      //    the reference is clipped, since its colour is then meaningless.
+      // 1. Colour cast: per-channel gains that turn the reference grey (von Kries).
+      //    Skipped when the reference is clipped.
       const clampGain=v=>Math.min(1.6, Math.max(0.625, v));
       if (!white.clipped){
         const wMean=(white.r+white.g+white.b)/3;
@@ -2183,10 +1903,7 @@ function detectToneFromImage(image, lm, W, H) {
         g=Math.min(255,g*clampGain(wMean/Math.max(1,white.g)));
         b=Math.min(255,b*clampGain(wMean/Math.max(1,white.b)));
       } else {
-        // Reference is clipped, so its absolute level is unusable - but the
-        // ratios between channels that did NOT clip still carry the cast.
-        // Anchor on green (the last channel to blow out) for a partial
-        // correction; better than leaving the cast in entirely.
+        // Clipped reference: anchor on green for a partial correction.
         r=Math.min(255,r*clampGain(white.g/Math.max(1,white.r)));
         b=Math.min(255,b*clampGain(white.g/Math.max(1,white.b)));
       }
@@ -2196,11 +1913,7 @@ function detectToneFromImage(image, lm, W, H) {
     const br=r*.299+g*.587+b*.114;
 
     // ── Tone level ──
-    // Measured as skin brightness RELATIVE to the sclera rather than in
-    // absolute terms. Both are lit by the same source, so the ratio cancels the
-    // exposure out entirely: the same person reads the same in a dim room, a
-    // bright one, or under a lamp. Absolute brightness cannot do that - it is
-    // what made a dim room classify everyone as deep.
+    // Skin brightness relative to the sclera, so exposure cancels out.
     let level;
     if (white && !white.clipped){
       const wBr=white.r*.299+white.g*.587+white.b*.114;
@@ -2209,8 +1922,7 @@ function detectToneFromImage(image, lm, W, H) {
       // against a neutral sclera (light .90, medium .68, deep .42).
       level = ratio>0.785 ? 'light' : ratio>0.545 ? 'medium' : 'dark';
     } else {
-      // No usable reference (eyes closed, or highlights blown): fall back to
-      // absolute bands, which are exposure-dependent but better than nothing.
+      // No usable reference (eyes closed or blown out): fall back to absolute bands.
       level = br>178 ? 'light' : br>128 ? 'medium' : 'dark';
     }
     // Undertone judged relative to overall brightness, so it isn't just "warm"
@@ -2221,21 +1933,11 @@ function detectToneFromImage(image, lm, W, H) {
 }
 function formatTone(k){return{light_warm:'Light Warm',light_cool:'Light Cool',medium_warm:'Medium Warm',medium_cool:'Medium Cool',dark_warm:'Deep Warm',dark_cool:'Deep Cool'}[k]||k;}
 
-// ─────────────────────────────────────────
-//  ADDITIONAL BRAND OPTIONS - DISPLAY
-//  Every brand matched to the same tone and
-//  step is drawn with the SAME markup and the
-//  SAME classes as the first one, so no brand
-//  has a privileged presentation. All three
-//  helpers return '' when a step has only one
-//  brand, which means the screens are byte-
-//  identical to before until a brand library
-//  actually contains data.
-// ─────────────────────────────────────────
+// ── Extra brand options (display) ──
+// Extra brands use the same markup as the first one. Empty when there's only one brand.
 function altOptions(entry){ return (entry&&entry.alt)||[]; }
 
-// Shades screen: extra brand blocks appended inside the same shade card,
-// reusing .shade-swatch / .shade-name-txt / .shade-brand-txt / .shade-slot-badge.
+// Shades screen: extra brand blocks inside the same shade card.
 function altShadeHTML(entry) {
   const alts=altOptions(entry);
   if (!alts.length) return '';
@@ -2248,8 +1950,7 @@ function altShadeHTML(entry) {
   ).join('');
 }
 
-// Step screen: one full .step-shade-card per additional brand, identical to
-// the card used for the first brand.
+// Step screen: one shade card per extra brand.
 function altStepCardsHTML(entry) {
   const alts=altOptions(entry);
   if (!alts.length) return '';
@@ -2283,9 +1984,7 @@ function altFoundCardsHTML(entry) {
   ).join('');
 }
 
-// ─────────────────────────────────────────
-//  SHADE RECOMMENDATIONS
-// ─────────────────────────────────────────
+// ── Shade recommendations ──
 function showShades() {
   const toneKey=STATE.toneKey||'medium_warm';
   // One winning product per category, scored across every available brand.
@@ -2302,8 +2001,7 @@ function showShades() {
     const isFocal=step===focal;
     const card=document.createElement('div');
     card.className='shade-card'+(isFocal?' focal-highlight':'');
-    // altShadeHTML is still wired in, but the selected entry carries no .alt, so
-    // exactly one product is rendered per category.
+    // The selected entry has no .alt, so one product shows per category.
     card.innerHTML=`<div class="shade-swatch" style="background:${shade.hex}"></div><div class="shade-step-label">${STEP_LABELS[step]}${isFocal?'<span class="focal-star"> ★</span>':''}</div><div class="shade-name-txt">${shade.shade}</div><div class="shade-brand-txt">${shade.brand||''}</div><div class="shade-prod-txt">${shade.product||''}</div><div class="shade-slot-badge">Slot ${shade.slot}</div>${altShadeHTML(shade)}`;
     grid.appendChild(card);
   });
@@ -2319,20 +2017,12 @@ function showShades() {
   }
   goTo('screen-shades');
   prewarmTryOnMesh();
-  // Load the quality classifier now, while the user reads their shades,
-  // so the first "Check My Placement" is not delayed by it.
+  // Load the quality model now so the first check isn't delayed.
   initQualityModel();
 }
 
-// ─────────────────────────────────────────
-//  PICTURE-BASED REFERENCE GUIDE
-//  A still of the user's own face, captured
-//  the moment their tone was classified, is
-//  re-rendered with the selected style and
-//  kept beside the live feed as a stable
-//  visual target. Distinct from try-on,
-//  which is a live filter.
-// ─────────────────────────────────────────
+// ── Picture-based reference guide ──
+// The captured photo re-rendered with the chosen style, shown beside the mirror.
 function captureReferenceFrame(image, lm) {
   try {
     const vW=image.width||640, vH=image.height||480;
@@ -2344,8 +2034,7 @@ function captureReferenceFrame(image, lm) {
   } catch(e){ console.error('Reference capture failed:', e); }
 }
 
-// Paints the captured still + the given style onto a target canvas, cropped to
-// a portrait frame so the reference sits naturally beside the portrait mirror.
+// Paints the captured photo and style onto a canvas, cropped to portrait.
 const REF_PORTRAIT = 3/4;   // width:height
 
 function paintReferenceGuide(canvasEl, style) {
@@ -2357,8 +2046,7 @@ function paintReferenceGuide(canvasEl, style) {
   const full=document.createElement('canvas'); full.width=W; full.height=H;
   const fctx=full.getContext('2d');
   fctx.drawImage(src,0,0);
-  // stepOnly:null is explicit - the reference is always the complete look,
-  // even if a per-step try-on happens to be open at the time.
+  // Always the complete look, even if a per-step preview is open.
   drawVirtualMakeup(fctx, STATE.captureLm, W, H, { style, stepOnly:null });
 
   // 2) Crop a portrait region centred on the FACE, not on the image, so an
@@ -2379,24 +2067,10 @@ function paintReferenceGuide(canvasEl, style) {
   return true;
 }
 
-// ═════════════════════════════════════════
-//  BARE-FACE BASELINE
-//
-//  The single biggest cause of false
-//  "makeup detected" results is that every
-//  feature is naturally different from
-//  plain skin: brows are darker, lips are
-//  redder, cheek hollows are shadowed. A
-//  fixed threshold therefore reads a bare
-//  face as "product applied".
-//
-//  So at capture time - before any of the
-//  four steps - we record how each zone
-//  looks on THIS user. Every later check
-//  asks "has this zone changed since your
-//  own before photo?" instead of "is this
-//  darker than skin?".
-// ═════════════════════════════════════════
+// ── Bare-face baseline ──
+// Brows, lips and hollows differ from skin even without makeup, so each zone is
+// recorded at capture. Later checks ask "has this zone changed since the before
+// photo?" instead of comparing it to skin.
 function zoneRegionPts(lm, step, W, H) {
   const P=i=>({x:lm[i].x*W, y:lm[i].y*H});
   if (step==='lips')     return [{outer:lmPts(lm,LIP_OUTER_LOOP,W,H), inner:lmPts(lm,LIP_INNER,W,H)}];
@@ -2475,9 +2149,7 @@ function compareToBaseline(frameData, lm, step, W, H) {
   };
 }
 
-// ─────────────────────────────────────────
-//  STYLE VARIATION SCREEN
-// ─────────────────────────────────────────
+// ── Style variation screen ──
 function renderStyleScreen() {
   const grid=document.getElementById('style-grid');
   const sub=document.getElementById('style-sub');
@@ -2488,8 +2160,7 @@ function renderStyleScreen() {
   const variations=STATE.styleData?.[STATE.focal];
 
   if (!Array.isArray(variations)||!variations.length){
-    // Missing or unreadable preset file - let the user through rather than
-    // trapping them on a dead screen.
+    // Preset file missing: let the user continue instead of getting stuck.
     grid.innerHTML='<p class="page-sub" style="grid-column:1/-1;text-align:center">'
       +'Style variations are unavailable right now. Continuing with the standard '
       +'Soft &amp; Natural look.</p>';
@@ -2498,22 +2169,19 @@ function renderStyleScreen() {
     return;
   }
 
-  // Kept short: on a phone a longer line wraps to three rows and pushes the
-  // reference guide and Continue button down the page.
+  // Kept short so it doesn't wrap on a phone.
   const lookLabel=currentLookLabel();
   if (sub) sub.textContent=(lookLabel?`${lookLabel} · `:'')
     +`Same ${focalLabel} shades, three levels of coverage`;
 
   const focalStep={lips:'lips',eyebrows:'eyebrows',cheeks:'blush',contour:'contour'}[STATE.focal]||'lips';
 
-  // Shades are identical across variations (they use the detected tone's
-  // recommendation), so this is the same for every card and reassures the
-  // user their tried-on shades won't change.
+  // Shades are the same for every variation, so the swatches are too.
   const resolved=selectBestSet(resolveShades(STATE.toneKey||'medium_warm', null))||{};
   const swatches=STEPS.map(step=>{
     const hex=resolved[step]?.hex||'#555';
     const lead=step===focalStep?' lead':'';
-    const title=`${STEP_LABELS[step]}: ${resolved[step]?.shade||'-'}`;
+    const title=`${STEP_LABELS[step]}: ${resolved[step]?.shade||'Not set'}`;
     return `<span class="style-swatch${lead}" style="background:${hex}" title="${title}"></span>`;
   }).join('');
 
@@ -2574,18 +2242,11 @@ function selectStyle(id) {
   if (nb) nb.disabled=false;
 }
 
-// ─────────────────────────────────────────
-//  FOUNDATION CHECKER
-//  Recommends a base shade from the detected
-//  tone and confirms readiness. It never
-//  verifies the shade actually used and
-//  provides no AR guide for foundation.
-// ─────────────────────────────────────────
+// ── Foundation checker ──
+// Recommends a base shade only. It never checks the shade used and has no AR guide.
 function renderFoundationScreen() {
   const toneKey=STATE.toneKey||'medium_warm';
-  // Same one-product-per-category rule as the Shades screen. For a base shade
-  // the target boldness is near zero, so this always picks the brand whose
-  // foundation sits closest to the detected skin tone.
+  // Same one-product rule; for foundation this picks the closest match to the skin.
   const f=bestProduct(STATE.foundationData?.[toneKey], 'foundation');
   const set=(id,txt)=>{const el=document.getElementById(id); if(el) el.textContent=txt;};
 
@@ -2615,9 +2276,7 @@ function confirmFoundation(applied) {
   startMakeupSteps();
 }
 
-// ─────────────────────────────────────────
-//  MAKEUP STEP LOOP
-// ─────────────────────────────────────────
+// ── Makeup steps ──
 async function startMakeupSteps() {
   stopTryOn();
   stopStream();
@@ -2640,8 +2299,7 @@ function renderStep(index) {
   const dr=document.getElementById('step-dot-row'); dr.innerHTML='';
   STEPS.forEach((_,i)=>{const d=document.createElement('div');d.className='step-dot'+(i<index?' done':i===index?' active':'');dr.appendChild(d);});
 
-  // Coverage guidance from the chosen variation. Tells the user HOW MUCH of
-  // the same product to apply for the look they picked.
+  // How much product to apply for the chosen variation.
   const covNote = coverageNote(step);
   // Finish guidance from the selected makeup look, combined with the focal point.
   const lookN   = lookNote(step);
@@ -2692,19 +2350,21 @@ function renderStep(index) {
   document.getElementById('btn-retry').style.display='none';
   STATE.checkPending=false;
 
+  // Named after the step so it isn't confused with the still "Your Finished Look".
+  const cmp=document.getElementById('btn-compare');
+  if (cmp) cmp.innerHTML=`<span class="tryon-spark">✦</span>Preview ${STEP_LABELS[step]} Live`;
+
   STATE.blushLm         = null;
   STATE.blushFrameCount = 0;
 
   let skipBtn=document.getElementById('btn-skip');
   if (!skipBtn){
-    skipBtn=document.createElement('button'); skipBtn.id='btn-skip'; skipBtn.textContent='Skip step →';
-    Object.assign(skipBtn.style,{marginTop:'8px',padding:'6px 18px',fontSize:'12px',color:'#9c3d68',background:'#ffffff',border:'1.5px solid #ffb3d1',borderRadius:'20px',cursor:'pointer',display:'block',width:'100%',letterSpacing:'0.04em'});
-    skipBtn.onmouseenter=()=>skipBtn.style.color='#e0006f';
-    skipBtn.onmouseleave=()=>skipBtn.style.color='#9c3d68';
+    skipBtn=document.createElement('button'); skipBtn.id='btn-skip';
+    skipBtn.className='btn-ghost'; skipBtn.textContent='Skip Step →';
     const retryBtn=document.getElementById('btn-retry');
     retryBtn?.parentElement?.insertBefore(skipBtn,retryBtn.nextSibling);
   }
-  skipBtn.style.display='block';
+  skipBtn.style.display='';
   skipBtn.onclick=skipStep;
 }
 
@@ -2719,9 +2379,7 @@ function renderStepReference() {
   if (label) label.textContent=painted?(STATE.style?.name||'Soft & Natural'):'';
 }
 
-// ─────────────────────────────────────────
-//  STEP FACE MESH
-// ─────────────────────────────────────────
+// ── Step screen face tracking ──
 function startStepFaceMesh() {
   requestAnimationFrame(()=>requestAnimationFrame(()=>{
     const video=document.getElementById('step-video');
@@ -2749,14 +2407,12 @@ function onStepResults(results) {
     let maxDelta=0;
     [1,234,454,10,152].forEach(i=>{const dx=lm[i].x-STATE.smoothedLm[i].x,dy=lm[i].y-STATE.smoothedLm[i].y;maxDelta=Math.max(maxDelta,Math.sqrt(dx*dx+dy*dy));});
     headDelta = maxDelta;
-    // Same filter as the detection screen: gentle response, heavier damping
-    // when turned, plus a deadband that ignores pure sensor noise.
+    // Same filter as the detection screen.
     STATE.smoothedLm=smoothLandmarks(STATE.smoothedLm, lm, turnVisibility(lm), 'step');
   }
   const dlm=STATE.smoothedLm;
 
-  // Guides follow the face at any angle; they dim as the head turns rather
-  // than disappearing, because a turned pose is harder to track precisely.
+  // Guides dim as the head turns instead of disappearing.
   const turnVis = turnVisibility(lm);
 
   const fMap={lips:'lips',eyebrows:'eyebrows',cheeks:'blush',contour:'contour'};
@@ -2764,8 +2420,7 @@ function onStepResults(results) {
   const fs=fMap[STATE.focal]||cs;
   const shade=activeShades()?.[cs];
   const hex=shade?.hex||'#e87090';
-  // The selected variation sets how strongly this step's guide reads. Kept
-  // above 0.55 so a soft preset never renders an unusably faint outline.
+  // The variation sets how strong the guide looks (never below 0.55).
   const si=Math.max(0.55, styleIntensity(cs));
   const sc=hexToRgba(hex,0.92*si);
   const fc=hexToRgba(hex,0.30*si);
@@ -2777,8 +2432,7 @@ function onStepResults(results) {
     } else {
       STATE.blushFrameCount++;
       const warmUp = STATE.blushFrameCount < 20;
-      // Never snap to 1.0 - a full jump to the raw landmarks on fast motion
-      // is what made the blush ellipse judder while turning.
+      // Never jump straight to the raw landmarks, or the blush shape judders.
       const A = warmUp             ? 0.40
               : headDelta > 0.040  ? 0.46
               : headDelta > 0.001  ? 0.07 + (headDelta / 0.040) * 0.36
@@ -2796,18 +2450,13 @@ function onStepResults(results) {
   const blm = (cs==='blush' && STATE.blushLm) ? STATE.blushLm : dlm;
 
   ctx.save(); ctx.translate(-ox,-oy);
-  // Step-screen guides fade slightly harder than the detection overlay: on the
-  // step screen the user is following a line, so a drifted guide is worse than
-  // no guide. turnVis alone bottoms out at 0.35; squaring the fraction above
-  // 0.7 doubles the fade rate past a moderate turn without touching frontal.
+  // Guides fade a bit faster here, since a drifted guide is worse than none.
   const stepFade = turnVis>=0.7 ? turnVis : 0.7 * Math.pow(turnVis/0.7, 1.6);
   ctx.globalAlpha = stepFade;
 
   const blushCov=cs==='blush'?getBlushCoverage(document.getElementById('step-video'),blm):undefined;
 
-  // The focal step is emphasised with a coloured GLOW on a single pass. It used
-  // to be drawn a second time on top, which doubled every line and was a large
-  // part of why the guides looked thick.
+  // The focal step gets a coloured glow.
   ctx.save();
   if (cs===fs && cs!=='lips'){ ctx.shadowColor=hex; ctx.shadowBlur=12; }
 
@@ -2817,11 +2466,8 @@ function onStepResults(results) {
   else if (cs==='contour')  drawContour(ctx,dlm,effW,effH,sc,fc,2.4);
   ctx.restore();
 
-  // Gentle hint when the head is turned far enough that accuracy drops.
-  // The overlay canvas can be as narrow as ~180 px on a small phone once the
-  // mirror shares the row with the reference panel, so the full sentence gets
-  // clipped at both edges. Fit-to-width: shrink the font, and drop to the
-  // short form when even that would still overflow the visible box.
+  // Hint when the head is turned too far. Shrinks, or switches to the short text,
+  // to fit narrow screens.
   if (turnVis < 0.7){
     ctx.globalAlpha = 1;
     const full  = 'Face forward for the most accurate guide';
@@ -2844,27 +2490,9 @@ function onStepResults(results) {
   checkStepLighting(video);
 }
 
-// ═════════════════════════════════════════
-//  APPLICATION QUALITY FEEDBACK (Objective 9)
-//
-//  Evaluates a completed step for smudging,
-//  unevenness, and excessive/insufficient
-//  product, alongside the colour-based
-//  placement check.
-//
-//  Two interchangeable back-ends, same output
-//  contract:
-//    'model'     - TensorFlow.js MobileNetV2
-//                  fine-tuned by transfer
-//                  learning on researcher-
-//                  collected application
-//                  images. Used when
-//                  QUALITY_MODEL_URL resolves.
-//    'heuristic' - geometric/photometric
-//                  analysis of the same ROI.
-//                  Used until that model has
-//                  been trained and exported.
-// ═════════════════════════════════════════
+// ── Application quality (Objective 9) ──
+// Checks a finished step for smudging, unevenness and product amount. Uses the
+// trained MobileNetV2 model when installed, pixel analysis otherwise. Same output.
 const QUALITY_MODEL_URL = 'models/application-quality/model.json';
 const QUALITY_CLASSES   = ['good','smudged','uneven','amount'];
 const QUALITY_INPUT     = 224;
@@ -2969,10 +2597,7 @@ function shapesBBox(shapes, W, H, pad) {
 // Blush and contour are meant to diffuse outward, so they get a wider band.
 const QUALITY_HALO = { lips:1.32, eyebrows:1.40, blush:1.55, contour:1.55 };
 
-// Tolerances per step, derived from the same colour space the placement
-// check uses (L1 distance from the user's own forehead skin).
-// Bands apply to the BASELINE-RELATIVE amount (product only, anatomy removed),
-// so the upper limits are far lower than raw skin deviation would suggest.
+// Tolerances per step, measured against the baseline (product only).
 const QUALITY_BAND = {
   lips:     { minAmount:18, maxAmount:170, unevenMax:0.62, smudgeMax:0.44 },
   blush:    { minAmount:10, maxAmount:110, unevenMax:0.74, smudgeMax:0.68 },
@@ -3020,11 +2645,8 @@ function analyzeQualityHeuristic(video, lm, step) {
   const mean=a=>a.reduce((s,v)=>s+v,0)/a.length;
   const rawAmount=mean(devIn);
 
-  // Every feature already differs from plain skin before any product goes on
-  // (brows are dark, lips are red, hollows are shadowed). Subtract how much
-  // this zone naturally deviated in the user's before photo, so "amount"
-  // measures PRODUCT rather than anatomy. Without a baseline, fall back to
-  // the raw deviation.
+  // Subtract how much the zone differed from skin in the before photo, so "amount"
+  // measures product, not anatomy.
   let natural=0;
   const b=STATE.baseline;
   if (b && b[step] && b.skin){
@@ -3037,19 +2659,15 @@ function analyzeQualityHeuristic(video, lm, step) {
   const smudge=devHalo.length>20 ? mean(devHalo)/(rawAmount+8) : 0;
 
   const band=QUALITY_BAND[step]||QUALITY_BAND.lips;
-  // Shift the acceptable amount window to the coverage the user actually chose,
-  // so a deliberately SHEER application is not flagged "too little", and a heavy
-  // one on a sheer look is nudged as "too much". Full coverage keeps the base
-  // band. cov ~ 0.6 (sheer) .. 1.0 (full).
+  // Move the accepted amount to the chosen coverage, so a sheer look isn't flagged
+  // "too little". cov is about 0.6 (sheer) to 1.0 (full).
   const cov = Math.max(0.45, Math.min(1, styleIntensity(step)));
   const minAmount = band.minAmount * (0.35 + 0.65*cov);   // sheer needs less to count
   const maxAmount = band.maxAmount * (0.55 + 0.45*cov);   // sheer flags excess sooner
   const tooLittle=amount<minAmount;
   const tooMuch  =amount>maxAmount;
   const amountOk =!tooLittle && !tooMuch;
-  // Smudging and evenness only mean something once there is product to judge.
-  // Below the minimum, the ratios are dominated by noise, so they are reported
-  // as not-assessed rather than as failures on top of "too little".
+  // Smudging and evenness are only judged once there's enough product.
   const measurable=!tooLittle;
   const smudgeOk=!measurable || smudge<=band.smudgeMax;
   const unevenOk=!measurable || uneven<=band.unevenMax;
@@ -3180,9 +2798,7 @@ function hideQualityReport() {
   if (box) box.style.display='none';
 }
 
-// ─────────────────────────────────────────
-//  PLACEMENT CHECK
-// ─────────────────────────────────────────
+// ── Placement check ──
 async function checkPlacement() {
   if (STATE.checkPending) return;
   STATE.checkPending=true;
@@ -3217,8 +2833,7 @@ async function checkPlacement() {
   showFeedback(passed,message,q);
 }
 
-// One row per step. Retrying a step overwrites its previous result instead of
-// appending, so the summary total always equals the number of steps attempted.
+// One row per step; a retry replaces the old result.
 function recordStepResult(step, result) {
   const row={step, ...result};
   const i=STATE.stepResults.findIndex(x=>x.step===step);
@@ -3231,8 +2846,7 @@ function advanceLipSubStep(r, q) {
   if (next>=LIP_SUBSTEP.length){
     const passed=!q||q.passed;
     const message=passed?r.message:q.message;
-    // Stay on the final sub-step when quality fails, so Retry re-checks the
-    // finished mouth rather than restarting from the top lip.
+    // Stay on the last lip sub-step on a fail, so Retry re-checks the whole mouth.
     if (passed) STATE.lipSubStep=0;
     recordStepResult(step,{passed,message,quality:q||null});
     showFeedback(passed,message,q);
@@ -3274,9 +2888,7 @@ function showShadeWarning(message, r) {
   STATE.checkPending=false;
 }
 
-// ─────────────────────────────────────────
-//  ASYNC MULTI-FRAME LIP ANALYSIS
-// ─────────────────────────────────────────
+// ── Lip analysis over several frames ──
 async function analyzeLipSubStepAsync(video, lm, subStep) {
   const FRAMES=4, DELAY=70;
 
@@ -3339,10 +2951,8 @@ async function analyzeLipSubStepAsync(video, lm, subStep) {
   const redShift=med('red'), pinkShift=med('pink');
 
   // ── Detection decision ──
-  // When a bare-face baseline exists it is AUTHORITATIVE: "has this changed
-  // since your own before photo?" is far more reliable than any absolute
-  // colour threshold, and it is what the user actually asked for. The old
-  // cheek-relative thresholds are only the fallback when no baseline was taken.
+  // With a bare-face baseline, "changed since the before photo" decides. The
+  // cheek-based thresholds are only a fallback.
   let detected, unstable=false;
   const bv = (STATE.baseline && firstFrame)
     ? baselineVerdict(firstFrame.data, lm, 'lips', firstFrame.W, firstFrame.H)
@@ -3368,8 +2978,7 @@ async function analyzeLipSubStepAsync(video, lm, subStep) {
       return {passed:false,message:
         'No lipstick detected. Your lips look the same as in your before photo. '+
         'Fill fully within the outline in even light, then check again.'};
-    // No red/pink shift over the cheek = bare lips → always "natural",
-    // never "too sheer" (which wrongly implies thin lipstick was applied).
+    // No red/pink shift = bare lips, read as "natural", never "too sheer".
     const hasColourShift=(redShift>16||pinkShift>18)&&satIncrease>0.06&&devFH>54;
     let msg;
     if(!hasColourShift)
@@ -3381,8 +2990,7 @@ async function analyzeLipSubStepAsync(video, lm, subStep) {
     return {passed:false,message:msg};
   }
 
-  // Unevenness from the robust spread of the whole region, with glare already
-  // excluded - a wet highlight can no longer masquerade as a bare patch.
+  // Unevenness from the spread of the region, with glare excluded.
   if (satIQR>0.26)
     return {passed:false,message:'Application is uneven. Some areas look bare or patchy. Blend more evenly right to the outline edges, then check again.'};
 
@@ -3401,12 +3009,8 @@ async function analyzeLipSubStepAsync(video, lm, subStep) {
   return{passed:true,warning:true,message:shadeMsg};
 }
 
-// ─────────────────────────────────────────
-//  ZONE COLOR ANALYSIS
-// ─────────────────────────────────────────
-// Minimum change from the user's own bare-face baseline before a step counts
-// as "product applied". Tuned per step: brows and lips take pigment densely,
-// blush and contour are sheer washes by design.
+// ── Zone colour analysis ──
+// Minimum change from the before photo that counts as product applied, per step.
 const BASELINE_MIN = {
   lips:     { delta:34, extra:(c)=>c.redGain>10||c.pinkGain>12||c.satGain>0.07 },
   eyebrows: { delta:26, extra:(c)=>c.darker>9 },
@@ -3414,9 +3018,7 @@ const BASELINE_MIN = {
   contour:  { delta:20, extra:(c)=>c.darker>7 },
 };
 
-// Verdict for "has this step actually been applied?", judged against the
-// before photo. Returns null when no baseline exists (falls back to the
-// older absolute thresholds).
+// Has this step been applied? Judged against the before photo. null if there's no baseline.
 function baselineVerdict(frameData, lm, step, W, H) {
   const c=compareToBaseline(frameData, lm, step, W, H);
   if (!c) return null;
@@ -3431,10 +3033,7 @@ function analyzeZoneColor(video, lm, step, sampleOverride) {
     const tmp=document.createElement('canvas'); tmp.width=W; tmp.height=H;
     const tctx=tmp.getContext('2d',{willReadFrequently:true}); tctx.drawImage(video,0,0,W,H);
 
-    // ── Baseline decision (authoritative when a bare-face reference exists) ──
-    // "Has this zone changed since your own before photo?" replaces the old
-    // absolute skin-relative thresholds, which read natural brows/hollows as
-    // product. Applied → pass; unchanged → clear "no product" message.
+    // ── Baseline decision (used whenever a before photo exists) ──
     if (step!=='lips' && STATE.baseline){
       const fd=tctx.getImageData(0,0,W,H).data;
       const bv=baselineVerdict(fd, lm, step, W, H);
@@ -3468,8 +3067,7 @@ function analyzeZoneColor(video, lm, step, sampleOverride) {
       const pinkShift=(r-b)-(ck.r-ck.b);
       const detected=br>20&&br<252&&absoluteSat>0.24&&dev>46&&satIncrease>0.12&&(redShift>24||pinkShift>26);
       if (!detected){
-        // The signature of NO lipstick is the absence of a clear red/pink shift
-        // over the cheek - bare lips must read as "natural", never as "sheer".
+        // No clear red/pink shift = bare lips, read as "natural".
         const hasColourShift=(redShift>16||pinkShift>18)&&satIncrease>0.06;
         let msg;
         if(!hasColourShift)
@@ -3550,20 +3148,10 @@ function analyzeZoneColor(video, lm, step, sampleOverride) {
 
 function rgbSat(r,g,b){const mx=Math.max(r,g,b)/255,mn=Math.min(r,g,b)/255;return mx===0?0:(mx-mn)/mx;}
 
-// ─────────────────────────────────────────
-//  ROBUST REGION SAMPLING
-//  Samples every pixel inside a polygon
-//  (optionally minus an inner polygon) and
-//  reports MEDIAN colour plus a robust
-//  spread. Specular highlights - the wet
-//  shine that appears when lips are licked -
-//  are discarded before any statistic is
-//  computed, so gloss no longer flips the
-//  verdict from frame to frame.
-// ─────────────────────────────────────────
+// ── Robust region sampling ──
+// Median colour and spread of every pixel in a polygon, with glare removed.
 function sampleRegionRobust(frameData, W, H, outerPts, innerPts) {
-  // Work inside the region's bounding box only. Masking the whole frame per
-  // region was far too slow - a single check builds ~20 of these.
+  // Only work inside the region's bounding box (much faster).
   let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
   outerPts.forEach(p=>{
     x0=Math.min(x0,p.x); x1=Math.max(x1,p.x);
@@ -3626,10 +3214,7 @@ function lipRegionPts(lm, W, H, subStep) {
   return {outer:lmPts(lm,LIP_OUTER_LOOP,W,H), inner:lmPts(lm,LIP_INNER,W,H)};
 }
 
-// Coverage only sets how strongly the blush guide is shaded, and it changes
-// slowly, so it's measured about 5 times a second rather than every frame.
-// Copying a live video frame into readable memory costs 10-15 ms, which
-// every frame was enough to make the blush step stutter.
+// Blush coverage only sets the guide's shading, so it's measured 5 times a second.
 let _blushCov={t:-1e9, v:0};
 function getBlushCoverage(video, lm) {
   const now=performance.now();
@@ -3640,9 +3225,7 @@ function getBlushCoverage(video, lm) {
 }
 function measureBlushCoverage(video, lm) {
   try {
-    // Runs every frame of the blush step: a quarter-size CPU canvas read once,
-    // instead of a full-size GPU canvas read back pixel by pixel (8 GPU stalls
-    // per frame). Downscaling also averages each sample over a small patch.
+    // Small CPU canvas, read once.
     const vW=160, vH=120;
     const tctx=scratchCtx('blush', vW, vH); tctx.drawImage(video,0,0,vW,vH);
     const img=tctx.getImageData(0,0,vW,vH).data;
@@ -3694,9 +3277,7 @@ function skipStep()  {
   else renderStep(STATE.currentStep);
 }
 
-// ─────────────────────────────────────────
-//  SUMMARY
-// ─────────────────────────────────────────
+// ── Summary ──
 function showSummary() {
   stopStream();
   const tone=activeShades();
@@ -3728,8 +3309,7 @@ function showSummary() {
   const styleName=STATE.style?.name;
   const lookName=currentLookLabel();
   const foundNote=STATE.foundationConfirmed===false?' · foundation skipped':'';
-  // Label the style explicitly  a bare name here reads as a verdict on the
-  // makeup itself (e.g. "Sheer Veil" looked like the system calling it sheer).
+  // Label the style so its name isn't read as a verdict on the makeup.
   document.getElementById('summary-sub').textContent=
     `${pass} of ${t} steps looked great`+(lookName?` · Look: ${lookName}`:'')
     +(styleName?` · Style: ${styleName}`:'')+foundNote;
@@ -3737,23 +3317,17 @@ function showSummary() {
   goTo('screen-summary');
 }
 
-// ─────────────────────────────────────────
-//  UTILITIES
-// ─────────────────────────────────────────
+// ── Utilities ──
 function hexToRgba(hex,a){if(!hex||hex.length<7)return`rgba(200,120,120,${a})`;return`rgba(${parseInt(hex.slice(1,3),16)},${parseInt(hex.slice(3,5),16)},${parseInt(hex.slice(5,7),16)},${a})`;}
 
-// The model trainer (trainer.html) loads this file as a library to score the
-// production heuristics, and sets AIM_LIBRARY so the app itself doesn't boot.
+// trainer.html loads this file as a library and sets AIM_LIBRARY so the app doesn't start.
 if (!window.AIM_LIBRARY)
   document.addEventListener('DOMContentLoaded',()=>{loadData();initParticles();initTMModels();setTimeout(prewarmMesh,800);});
 
-// ─────────────────────────────────────────
-//  VIRTUAL TRY-ON
-// ─────────────────────────────────────────
+// ── Virtual try-on ──
 let _toMesh=null, _toStream=null, _toRaf=null, _toLastLm=null, _toStepOnly=null, _toOwnsStream=false;
 
-// Pre-warms FaceMesh so the wasm model downloads while the user reads
-// the shades screen - eliminates lag on first TRY IT ON tap.
+// Pre-warms FaceMesh while the user reads the shades, so Try It On opens fast.
 function prewarmTryOnMesh() {
   if (_toMesh) return;
   _toMesh=new FaceMesh({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`});
@@ -3802,9 +3376,7 @@ function startTryOn() {
     _toMesh.onResults(onTryOnResults);
   }
 
-  // The step screen already has the webcam open - share that stream rather
-  // than opening the device a second time, and pause the step's own FaceMesh
-  // so two models are never running on the same frames at once.
+  // Share the step screen's camera and pause its tracking while the try-on runs.
   const live=STATE.stream && STATE.stream.getVideoTracks().some(t=>t.readyState==='live');
   _toOwnsStream=!live;
   if(live) STATE.meshPaused=true;
@@ -3828,8 +3400,7 @@ function startTryOn() {
       const ctx=canvas.getContext('2d');
       ctx.drawImage(video,0,0,vW,vH);
       if(_toLastLm) drawVirtualMakeup(ctx,_toLastLm,vW,vH);
-      // Track every new camera frame (it used to be every 3rd screen refresh,
-      // so the makeup trailed the face). `sending` keeps it to one at a time.
+      // Track every new camera frame, one at a time.
       if(!sending && video.currentTime!==lastT){
         sending=true; lastT=video.currentTime;
         _toMesh.send({image:video}).finally(()=>{ sending=false; });
@@ -3862,11 +3433,8 @@ function onTryOnResults(results) {
   _toLastLm=results.multiFaceLandmarks?.[0]||null;
 }
 
-// ─────────────────────────────────────────
-//  VIRTUAL MAKEUP RENDERER
-//  Render order (back→front): contour →
-//  blush → eyebrows → lips
-// ─────────────────────────────────────────
+// ── Virtual makeup renderer ──
+// Draw order: contour, blush, brows, lips.
 let _lipLayer=null;
 function drawVirtualMakeup(ctx, lm, W, H, opts) {
   // opts.style    - render a specific variation (reference guide previews);
@@ -3876,8 +3444,7 @@ function drawVirtualMakeup(ctx, lm, W, H, opts) {
   const style = ('style' in o) ? o.style : STATE.style;
   const stepOnly = ('stepOnly' in o) ? o.stepOnly : _toStepOnly;
 
-  // Same single best-match product per category that the Shades screen shows, so
-  // the try-on previews exactly the products being recommended.
+  // Same products as the Shades screen.
   const tone=selectBestSet(resolveShades(STATE.toneKey||'medium_warm', style));
   if(!tone) return;
 
@@ -3886,10 +3453,8 @@ function drawVirtualMakeup(ctx, lm, W, H, opts) {
     return {r:parseInt(hex.slice(1,3),16),g:parseInt(hex.slice(3,5),16),b:parseInt(hex.slice(5,7),16)};
   }
 
-  // Overall face-on factor. The 2D filter only lines up on a fairly frontal,
-  // level face; past that it smears across the cheeks/lips. Fade the WHOLE
-  // filter out as the head turns or tilts so it never renders a mismatched
-  // mess. Better to show less makeup than makeup in the wrong place.
+  // Fade the whole filter out as the head turns or tilts, so it never lands in the
+  // wrong place.
   const _clamp=v=>Math.min(1,Math.max(0,v));
   const _off = Math.abs((lm[1].x-lm[234].x)/((lm[454].x-lm[234].x)||0.001) - 0.5);
   const _roll = Math.abs(lm[234].y-lm[454].y)/((Math.abs(lm[234].x-lm[454].x))||0.001);
@@ -3899,10 +3464,7 @@ function drawVirtualMakeup(ctx, lm, W, H, opts) {
   // Complete-look strengths, then faded with pose. Every zone is always present.
   const styleMult = {};
   STEPS.forEach(s=>{ styleMult[s]=tryOnIntensity(s, style)*faceOn; });   // fade with pose
-  // Per-step preview ("Compare My Look"): the step being checked stays at full
-  // strength and the rest are DIMMED rather than switched off. Zeroing them was
-  // what left the face bare and pale in the preview; the step is still clearly
-  // the subject, but the user now sees it in the context of the whole look.
+  // Per-step preview: the current step at full strength, the rest dimmed.
   const mult = stepOnly
     ? STEPS.reduce((m,s)=>{ m[s]= s===stepOnly ? styleMult[s] : styleMult[s]*STEP_PREVIEW_DIM; return m; }, {})
     : styleMult;
@@ -3912,17 +3474,13 @@ function drawVirtualMakeup(ctx, lm, W, H, opts) {
   const faceRef=Math.max(faceW,faceH*0.80);
   const nosePx=lm[1].x*W, nosePy=lm[1].y*H;
 
-  // Per-side visibility from the nose-to-ear ratio. When the head turns, one
-  // cheek recedes and its landmarks bunch together - without this, the fixed
-  // shadow blob concentrates there into an unblended dark patch. Scaling each
-  // side's makeup by how face-on it is keeps the filter matched to the face.
+  // Scale each side by how face-on it is, so a turned cheek doesn't get a dark patch.
   const clamp01=v=>Math.min(1,Math.max(0,v));
   const noseRatio=(lm[1].x-lm[234].x)/((lm[454].x-lm[234].x)||0.001);
   const visL=clamp01((noseRatio-0.12)/0.22);   // 234 side
   const visR=clamp01((0.88-noseRatio)/0.22);   // 454 side
 
-  // ── Contour: cheek hollows + jaw sides + nose sides ──────────
-  // Uses pure radial-gradient blobs (no ctx.filter - reliable cross-browser).
+  // ── Contour: cheek hollows, jaw sides, nose sides ──
   if(tone.contour?.hex && mult.contour>0.05){
     const {r,g,b}=rgb(tone.contour.hex);
     const a=mult.contour;
@@ -3984,10 +3542,7 @@ function drawVirtualMakeup(ctx, lm, W, H, opts) {
     ctx.restore();
   }
 
-  // ── Blush: tilted ellipse along the cheekbone (per-side vis) ──
-  // Clipped to the face silhouette. Without a clip, the ellipse crosses the
-  // jaw/temple edge on a turned face and the coloured halo sits on the dark
-  // background, which reads as a bright outline extending past the cheek.
+  // ── Blush: tilted ellipse on the cheekbone, clipped to the face outline ──
   if(tone.blush?.hex && mult.blush>0.05){
     const {r,g,b}=rgb(tone.blush.hex);
     const baseAlpha=mult.blush;
@@ -4011,7 +3566,6 @@ function drawVirtualMakeup(ctx, lm, W, H, opts) {
       const angle=Math.atan2(ty-nosePy, tx-nosePx);
       const cx=nosePx+0.62*(tx-nosePx);
       const cy=nosePy+0.62*(ty-nosePy)+faceRef*0.04;
-      // Tightened: was 0.26/0.15 which crossed the jaw edge on many frames.
       const rMaj=faceRef*0.22;
       const rMin=faceRef*0.13;
       ctx.save();
@@ -4049,7 +3603,7 @@ function drawVirtualMakeup(ctx, lm, W, H, opts) {
   // ── Lips: full outer shape with inner punch-out ────────────────
   if(tone.lips?.hex && mult.lips>0.05){
     const {r,g,b}=rgb(tone.lips.hex);
-    // One lip layer reused every frame (the live try-on calls this per frame).
+    // One lip layer reused every frame.
     const lc=_lipLayer||(_lipLayer=document.createElement('canvas'));
     if (lc.width!==W || lc.height!==H){ lc.width=W; lc.height=H; }
     const lx=lc.getContext('2d');
@@ -4057,18 +3611,14 @@ function drawVirtualMakeup(ctx, lm, W, H, opts) {
     lx.clearRect(0,0,W,H);
     lx.filter='blur(1px)';
     lx.fillStyle=`rgb(${r},${g},${b})`;
-    // Outer lip pulled 4% toward its centre so imperfect landmarks on a close /
-    // blurry frame keep the colour inside the lip line instead of bleeding onto
-    // the surrounding skin.
+    // Outer lip pulled 4% inward so colour stays inside the lip line.
     const outerRaw=lmPts(lm,LIP_OUTER_LOOP,W,H);
     const ocx=outerRaw.reduce((s,p)=>s+p.x,0)/outerRaw.length;
     const ocy=outerRaw.reduce((s,p)=>s+p.y,0)/outerRaw.length;
     const outerPts=outerRaw.map(p=>({x:ocx+(p.x-ocx)*0.96, y:ocy+(p.y-ocy)*0.96}));
     lx.beginPath(); softPolyPath(lx,outerPts); lx.fill();
 
-    // Inner punch-out, pulled 18% toward the mouth centre so it removes only
-    // the mouth opening and never eats into the coloured lip surface - this
-    // was the cause of a chunk of colour looking "missing".
+    // Inner cut-out pulled 18% inward so it only removes the mouth opening.
     const innerPts=lmPts(lm,LIP_INNER,W,H);
     const icx=innerPts.reduce((s,p)=>s+p.x,0)/innerPts.length;
     const icy=innerPts.reduce((s,p)=>s+p.y,0)/innerPts.length;
@@ -4085,10 +3635,7 @@ function drawVirtualMakeup(ctx, lm, W, H, opts) {
     const shinePts=lmPts(lm,[37,0,267,82,13,312],W,H);
     lx.beginPath(); softPolyPath(lx,shinePts); lx.fill();
 
-    // Two-pass compositing so no part of the lip ever looks uncoloured:
-    //   1) a base tint (source-over) guarantees visible colour everywhere,
-    //      even on lip areas in shadow where multiply alone washes out;
-    //   2) a multiply pass on top restores natural depth and lip texture.
+    // Two passes: a base tint so every part is coloured, then multiply for depth.
     ctx.save();
     ctx.globalCompositeOperation='source-over';
     ctx.globalAlpha=0.42*mult.lips;

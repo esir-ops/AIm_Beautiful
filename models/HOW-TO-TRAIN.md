@@ -113,7 +113,7 @@ the code expects if you go beyond 2 classes):
   `uneven`, `smudged`, `too_much`, `too_little`.
 - **Blush / Eyebrows / Contour:** same idea.
 
-Collect samples **on real faces with the actual Squad / Detail products** in your
+Collect samples **on real faces with the actual Squad, Detail and Chuchu Beauty products** in your
 tray, under your evaluation lighting. 200+ per class. Export exactly as in Part A
 and drop into `models/application-quality/`.
 

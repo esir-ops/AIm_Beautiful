@@ -6,12 +6,11 @@
   <title>Model Trainer</title>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700&family=Jost:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
-  <link rel="stylesheet" href="style.css?v=52"/>
+  <link rel="stylesheet" href="style.css?v=60"/>
 </head>
 <body>
 
-<!-- Staff tool: trains and evaluates the app's AI models on THIS mirror.
-     Not linked from the customer flow - open trainer.html directly. -->
+<!-- Staff page for training and evaluating the models. Not linked from the app. -->
 <div class="screen active">
   <div class="page-wrap page-wrap-wide">
     <nav class="tg-tabs" id="tg-tabs">
@@ -98,11 +97,10 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js" crossorigin="anonymous"></script>
-<script src="face-crop.js?v=1"></script>
-<!-- The app's own code, loaded as a library so evaluation scores the exact
-     heuristics the app runs. AIM_LIBRARY stops the app from booting. -->
+<script src="face-crop.js?v=2"></script>
+<!-- The app code, loaded as a library (AIM_LIBRARY stops it from starting) -->
 <script>window.AIM_LIBRARY=true;</script>
-<script src="app.js?v=56"></script>
-<script src="trainer.js?v=5"></script>
+<script src="app.js?v=61"></script>
+<script src="trainer.js?v=7"></script>
 </body>
 </html>

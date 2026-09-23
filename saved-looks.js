@@ -1,33 +1,11 @@
-// ═══════════════════════════════════════════════════════════
-//  AI'm Beautiful: SAVED / FAVOURITE MAKEUP LOOKS
-//
-//  Snapshots a finished makeup session (skin-tone analysis,
-//  recommended products/shades, completed steps, saved date)
-//  into localStorage, and renders them back in a modal.
-//
-//  The user chooses HOW to save on the summary screen:
-//    saveType 'recommendations' -> session data only, image null
-//    saveType 'picture'         -> session data + a JPEG of the
-//                                  finished look, captured here
-//
-//  This file only READS the live session state produced by
-//  app.js (STATE, activeShades, formatTone, STEP_LABELS,
-//  coverageLevel, goTo). It never changes it, so no existing
-//  detection, mapping or recommendation behaviour is affected.
-//  The photo camera is a plain getUserMedia preview - it does
-//  not load MediaPipe or TensorFlow and never touches the AI.
-//
-//  Everything written to storage is a deep COPY of plain
-//  values, so a saved look can never be rewritten by a later
-//  session.
-// ═══════════════════════════════════════════════════════════
+// ── Saved looks ──
+// Saves a finished session (tone, products, steps, date, optional photo) to
+// localStorage and shows it in a modal. Only reads the app's state, never changes it.
 
 const SL_STORAGE_KEY = 'aimb_saved_looks_v1';
 const SL_MAX_LOOKS   = 50;
 
-// Stored photo size. A 480x640 JPEG at q0.72 lands around 40-70 KB as a
-// data URL, so a full library of 50 looks stays well inside the ~5 MB
-// localStorage budget. Raising either number risks QuotaExceededError.
+// Stored photo size: about 40-70 KB each, so 50 looks fit in localStorage.
 const SL_IMG_W = 480;
 const SL_IMG_H = 640;
 const SL_IMG_Q = 0.72;
@@ -41,9 +19,7 @@ let SL_SAVING         = false;  // guards against double-clicking Save
 let SL_CAM_STREAM     = null;   // photo-preview stream (separate from the AI feeds)
 let SL_PENDING_IMAGE  = null;   // captured JPEG awaiting Retake / Save
 
-// ─────────────────────────────────────────
-//  STORAGE
-// ─────────────────────────────────────────
+// ── Storage ──
 function slReadAll() {
   try {
     const raw = localStorage.getItem(SL_STORAGE_KEY);
@@ -60,8 +36,7 @@ function slWriteAll(list) {
     localStorage.setItem(SL_STORAGE_KEY, JSON.stringify(list));
     return { ok:true };
   } catch (e) {
-    // A saved photo is the only thing large enough to fill the quota, so the
-    // message has to tell the user what they can actually do about it.
+    // Only a photo can fill the quota, so say what the user can do about it.
     const quota = !!(e && (e.name === 'QuotaExceededError' ||
                            e.name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
                            e.code === 22 || e.code === 1014));
@@ -70,9 +45,7 @@ function slWriteAll(list) {
   }
 }
 
-// ─────────────────────────────────────────
-//  HELPERS
-// ─────────────────────────────────────────
+// ── Helpers ──
 function slEsc(v) {
   return String(v == null ? '' : v)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
@@ -105,11 +78,7 @@ function slAltSnapshot(list) {
 
 function slIsPicture(L) { return L && L.saveType === 'picture' && !!L.image; }
 
-// ─────────────────────────────────────────
-//  BUILD THE SNAPSHOT FROM THE LIVE SESSION
-//  saveType: 'recommendations' | 'picture'
-//  image:    data URL, or null
-// ─────────────────────────────────────────
+// ── Build the snapshot from the live session ──
 function slBuildSnapshot(saveType, image) {
   if (typeof STATE === 'undefined') return null;
 
@@ -145,10 +114,7 @@ function slBuildSnapshot(saveType, image) {
     };
   });
 
-  // Foundation stage (recommendation only, the system never verifies it).
-  // Run through the same single-best-match selector the Foundation screen uses,
-  // otherwise the saved record would name a different brand than the one the
-  // user was actually shown.
+  // Foundation, picked the same way the Foundation screen does.
   const fRaw = (STATE.foundationData && toneKey) ? STATE.foundationData[toneKey] : null;
   const fSrc = (typeof bestProduct === 'function') ? bestProduct(fRaw, 'foundation') : fRaw;
   const foundation = {
@@ -175,8 +141,7 @@ function slBuildSnapshot(saveType, image) {
       label: (STATE.focalData && STATE.focal && STATE.focalData[STATE.focal]
                && STATE.focalData[STATE.focal].label) || STATE.focal || 'Not set'
     },
-    // The makeup look chosen before the focal point. Stored as a flat copy so
-    // the saved entry stays readable even if the preset file changes later.
+    // The makeup look, stored as a plain copy.
     look: STATE.look ? {
       key:   STATE.look,
       label: (typeof currentLookLabel === 'function' ? currentLookLabel() : '') || STATE.look,
@@ -241,9 +206,7 @@ function slToast(msg, good) {
   t._slTimer = setTimeout(() => t.classList.remove('show'), 3200);
 }
 
-// ═══════════════════════════════════════════
-//  SAVE CHOICE FLOW  (summary screen)
-// ═══════════════════════════════════════════
+// ── Save choice (summary screen) ──
 function openSaveChoice() {
   const m = document.getElementById('save-choice-modal');
   if (!m) return;
@@ -349,8 +312,7 @@ function slStopCamera() {
   if (video) video.srcObject = null;
 }
 
-// Crops the landscape webcam frame to a portrait photo and mirrors it, so the
-// saved picture matches what the user saw in the mirror.
+// Crops the webcam frame to portrait and mirrors it, like the mirror view.
 function slCaptureFrame(video) {
   const vW = video.videoWidth, vH = video.videoHeight;
   if (!vW || !vH) return null;
@@ -404,12 +366,8 @@ function saveLookWithPicture() {
   }, 30);
 }
 
-// Kept so the old Save Look binding still works if index.html was not updated.
-function saveCurrentLook() { openSaveChoice(); }
 
-// ═══════════════════════════════════════════
-//  SAVED LOOKS MODAL
-// ═══════════════════════════════════════════
+// ── Saved looks modal ──
 function openSavedLooks() {
   const m = document.getElementById('saved-modal');
   if (!m) return;
@@ -426,13 +384,11 @@ function closeSavedLooks() {
 
 function slStartFromEmpty() {
   closeSavedLooks();
-  // Enters at the makeup-look step, which is now the first step of the guide.
+  // Starts at the makeup-look step.
   if (typeof goTo === 'function') goTo('screen-look');
 }
 
-// ─────────────────────────────────────────
-//  LIST VIEW
-// ─────────────────────────────────────────
+// ── List view ──
 function renderSavedLooksList() {
   const body  = document.getElementById('saved-body');
   const title = document.getElementById('saved-modal-title');
@@ -456,8 +412,7 @@ function renderSavedLooksList() {
     const pic   = slIsPicture(L);
     const steps = (L.steps || []).length;
 
-    // Swatch row only for recommendation-only cards; the photo already
-    // carries the visual weight on picture cards.
+    // Swatches only on cards without a photo.
     const swatches = pic ? '' : (L.steps || [])
       .filter(s => s.product && s.product.hex)
       .map(s => '<span class="sl-dot" style="background:' + slEsc(s.product.hex) + '" title="' +
@@ -494,9 +449,7 @@ function slRow(label, value) {
          '</span><strong class="sl-row-v">' + slEsc(value || 'Not set') + '</strong></div>';
 }
 
-// ─────────────────────────────────────────
-//  DETAIL VIEW
-// ─────────────────────────────────────────
+// ── Detail view ──
 function viewSavedLook(id) {
   const body  = document.getElementById('saved-body');
   const title = document.getElementById('saved-modal-title');
@@ -597,9 +550,7 @@ function viewSavedLook(id) {
   body.scrollTop = 0;
 }
 
-// Brand · Product · Shade · Shade Code · Tray Slot for one product.
-// Every brand saved for a category is rendered with this exact same row set,
-// so Chuchu Beauty reads identically to Detail Cosmetics and Squad Cosmetics.
+// Brand · Product · Shade · Shade Code · Tray Slot for one product (same for every brand).
 function slBrandRows(p, coverage) {
   return '' +
     '<div class="sl-prod-head">' +
@@ -628,13 +579,8 @@ function slProductBlock(label, p, alts, coverage) {
     '</div>';
 }
 
-// ─────────────────────────────────────────
-//  DELETE
-//  The photo lives inside the saved-look
-//  object, so removing the object removes
-//  the image data with it - there is no
-//  separate file or blob to clean up.
-// ─────────────────────────────────────────
+// ── Delete ──
+// The photo is inside the saved object, so deleting the object removes it too.
 function askDeleteSavedLook(id) {
   SL_PENDING_DELETE = id;
   const c = document.getElementById('saved-confirm');

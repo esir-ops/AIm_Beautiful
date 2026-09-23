@@ -1,11 +1,5 @@
-// ─────────────────────────────────────────
-//  FACE CROP - shared by the app and the model trainer
-//
-//  The classifier slots (glasses / occlusion) look at a padded box around the
-//  face, squashed to a square. The trainer (trainer.html) records with
-//  this SAME function, so a model is always trained on exactly the kind of
-//  image it is shown at run time.
-// ─────────────────────────────────────────
+// ── Face crop ──
+// Shared by the app and trainer.html, so models train on the same crop they see.
 function faceCropCanvas(image, lm, size, canvas) {
   const vW=image.width||image.videoWidth||640, vH=image.height||image.videoHeight||480;
   let x0=1,y0=1,x1=0,y1=0;
@@ -26,9 +20,7 @@ function faceCropCanvas(image, lm, size, canvas) {
 function localModelKey(slot){ return `indexeddb://aim-model-${slot}`; }
 function localLabelsKey(slot){ return `aim-model-${slot}-labels`; }
 
-// Index of the positive class. Exact match first, then a label that contains
-// the word but is not its negation - "no_glasses" also contains "glasses", and
-// Teachable Machine keeps whatever class order the user created.
+// Index of the positive class ("no_glasses" also contains "glasses", so negations are skipped).
 function positiveLabelIndex(labels, positive) {
   if (!labels) return 0;
   const L=labels.map(l=>String(l).toLowerCase().trim());

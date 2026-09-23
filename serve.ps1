@@ -1,7 +1,7 @@
-# AI'm Beautiful — local dev/demo server.
+# AI'm Beautiful local server.
 #
 # The app loads its shade, style, focal-point and foundation data with fetch(),
-# which browsers block on file:// — so index.html must be served over http.
+# which browsers block on file://, so index.html must be served over http.
 # This needs no Python, Node, or any install: it uses .NET's HttpListener.
 #
 #   Run:   right-click this file -> "Run with PowerShell"

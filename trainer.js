@@ -1,24 +1,7 @@
-// ═════════════════════════════════════════
-//  MODEL TRAINER + EVALUATION  (trainer.html?slot=…)
-//
-//  Transfer learning in the browser, the recipe Teachable Machine uses: a
-//  frozen MobileNetV2 (alpha 0.35) turns each crop into 1280 numbers, and a
-//  small dense head learns the labels from those numbers. The finished model
-//  (MobileNet + head, 224x224 input scaled to [-1,1]) matches the contract of
-//  the app slot it is installed into:
-//
-//    glasses    face crop      softmax ['glasses','no_glasses']     TM_MODELS.glasses
-//    occlusion  face crop      softmax ['covered','clear']          TM_MODELS.occlusion
-//    quality    makeup zone    sigmoid QUALITY_CLASSES              QUALITY_MODEL_URL
-//
-//  Crops come from the app's own functions (faceCropCanvas, zoneShapes +
-//  shapesBBox), so a model is trained on exactly what the app shows it.
-//
-//  Evaluation: samples recorded into the TEST set are also judged, at record
-//  time, by the app's production heuristics (checkAccessories, occlusionCheck,
-//  analyzeQualityHeuristic - app.js is loaded as a library). Both are then
-//  scored against the true labels on the same samples.
-// ═════════════════════════════════════════
+// ── Model trainer and evaluation (trainer.html?slot=…) ──
+// A frozen MobileNetV2 turns each crop into 1280 numbers and a small head learns
+// the labels. Crops use the app's own functions, so a model sees what the app sees.
+// Test samples are also scored by the app's pixel rules so the two can be compared.
 (()=>{
 const BASE_URL='https://storage.googleapis.com/teachable-machine-models/mobilenet_v2_weights_tf_dim_ordering_tf_kernels_0.35_224_no_top/model.json';
 const INPUT=224, SAMPLE_MS=180, EPOCHS=40;
@@ -52,7 +35,7 @@ const SLOTS = {
     names:{good:'Good', smudged:'Smudged', uneven:'Uneven', amount:'Too much / too little'},
     turnMax:0.22,
     tips:'Pick the step and what\'s true about it right now, then record while moving a little. '
-        +'<b>Good</b> can\'t be combined with the others, but the problems can. Use the actual Squad and Detail products, '
+        +'<b>Good</b> can\'t be combined with the others, but the problems can. Use the actual Squad, Detail and Chuchu Beauty products, '
         +'and record a bare face as <b>Too much / too little</b>.',
     heuristic:(img,lm,video,step)=>{
       const q=analyzeQualityHeuristic(video,lm,step);
@@ -207,9 +190,8 @@ function currentLabelText() {
   return `${STEP_NAMES[T.step]} · ${[...T.qLabels].map(l=>S.names[l]).join(' + ')}`;
 }
 
-// Stores the crop's feature vector and its mirror image (free augmentation).
-// Test samples are also judged by the heuristic and the installed model NOW,
-// while the frame's pixels exist - no image is kept afterwards.
+// Stores the crop's features and its mirror image. Test samples are also scored
+// now by the pixel rules and the installed model; no image is kept.
 async function addSample(image, lm, video) {
   if (!T.embed) return;
   const step=T.step, y=currentY();
@@ -237,9 +219,8 @@ async function addSample(image, lm, video) {
   refreshUi();
 }
 
-// ── Saved samples ───────────────────────
-// Each slot's samples live in IndexedDB, so switching tabs or reloading the
-// page keeps them. Still only feature numbers - never photos.
+// ── Saved samples ──
+// Kept per slot in IndexedDB (numbers only), so reloading keeps them.
 const DB_NAME='aim-trainer', DB_STORE='samples';
 function dbDo(mode, fn) {
   return new Promise((res,rej)=>{
