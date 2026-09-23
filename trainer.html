@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>Model Trainer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700&family=Jost:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="style.css?v=51"/>
+</head>
+<body>
+
+<!-- Staff tool: trains and evaluates the app's AI models on THIS mirror.
+     Not linked from the customer flow - open trainer.html directly. -->
+<div class="screen active">
+  <div class="page-wrap page-wrap-wide">
+    <nav class="tg-tabs" id="tg-tabs">
+      <a href="?slot=glasses">Glasses</a>
+      <a href="?slot=occlusion">Face Covered</a>
+      <a href="?slot=quality">Makeup Quality</a>
+    </nav>
+    <div class="page-header">
+      <h2 class="page-title">Train <em id="tg-title">Glasses Detection</em></h2>
+      <p class="page-sub">Recorded at this mirror, so the model learns this camera, lighting and glass.<br/>
+        Only numeric features are kept in memory. No photos are saved.</p>
+    </div>
+
+    <div class="tg-layout">
+      <div class="tg-cam-col">
+        <div class="cam-box tg-cam">
+          <video id="tg-video" autoplay playsinline muted></video>
+          <canvas id="tg-overlay"></canvas>
+        </div>
+        <p class="capture-status" id="tg-status">Starting camera…</p>
+      </div>
+
+      <div class="tg-panel">
+        <section class="tg-step">
+          <h3 class="tg-step-title"><span>1</span> Record samples</h3>
+          <div class="tg-mode">
+            <span class="tg-mode-label">Recording into</span>
+            <button class="tg-chip on" id="tg-mode-train">Training set</button>
+            <button class="tg-chip" id="tg-mode-test">Test set</button>
+          </div>
+          <p class="tg-note" id="tg-mode-note"></p>
+          <p class="tg-note" id="tg-tips"></p>
+          <div id="tg-quality-controls" hidden>
+            <div class="tg-chip-row" id="tg-step-row"></div>
+            <div class="tg-chip-row" id="tg-label-row"></div>
+          </div>
+          <div class="tg-rec-row" id="tg-rec-row"></div>
+          <p class="tg-note" id="tg-counts"></p>
+          <button class="btn-ghost tg-small" id="tg-clear">Clear training samples</button>
+        </section>
+
+        <section class="tg-step">
+          <h3 class="tg-step-title"><span>2</span> Train</h3>
+          <button class="btn-primary" id="tg-train" disabled>Train Model</button>
+          <div class="tg-bar"><i id="tg-bar-fill"></i></div>
+          <p class="tg-note" id="tg-train-status">Loading the base model…</p>
+        </section>
+
+        <section class="tg-step">
+          <h3 class="tg-step-title"><span>3</span> Test live</h3>
+          <div class="tg-live" id="tg-live"><span class="tg-test-label">Train first</span></div>
+          <p class="tg-note">Try to fool it. If it gets something wrong, record more of that case and train again.</p>
+        </section>
+
+        <section class="tg-step">
+          <h3 class="tg-step-title"><span>4</span> Install</h3>
+          <button class="btn-primary" id="tg-install" disabled>Install on This Mirror</button>
+          <div class="tg-btn-row">
+            <button class="btn-ghost tg-small" id="tg-download" disabled>Download Model Files</button>
+            <button class="btn-retry tg-small" id="tg-remove">Remove Installed Model</button>
+          </div>
+          <p class="tg-note" id="tg-install-status"></p>
+        </section>
+
+        <section class="tg-step">
+          <h3 class="tg-step-title"><span>5</span> Evaluate</h3>
+          <p class="tg-note">Switch step 1 to <b>Test set</b> and record people who were <b>not</b> recorded for training.
+            Each sample is judged by the current pixel rules and by the model, so you can compare them fairly.</p>
+          <p class="tg-note" id="tg-test-count"></p>
+          <div class="tg-btn-row">
+            <button class="btn-primary tg-small" id="tg-eval" disabled>Evaluate</button>
+            <button class="btn-ghost tg-small" id="tg-eval-csv" disabled>Download Results (CSV)</button>
+            <button class="btn-ghost tg-small" id="tg-test-clear">Clear test set</button>
+          </div>
+          <div id="tg-results"></div>
+          <a class="tg-back" href="index.html">← Back to AI'm Beautiful</a>
+        </section>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js" crossorigin="anonymous"></script>
+<script src="face-crop.js?v=1"></script>
+<!-- The app's own code, loaded as a library so evaluation scores the exact
+     heuristics the app runs. AIM_LIBRARY stops the app from booting. -->
+<script>window.AIM_LIBRARY=true;</script>
+<script src="app.js?v=51"></script>
+<script src="trainer.js?v=1"></script>
+</body>
+</html>

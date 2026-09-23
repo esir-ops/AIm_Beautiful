@@ -1,0 +1,79 @@
+{
+  "_comment": "Makeup look selection. Chosen BEFORE the focal point, and combined with it. 'intensity' is a per-step multiplier applied on top of the chosen style variation inside styleIntensity() - it is the single hook that makes the look affect the written guidance, the 'amount to apply' meter, the application-quality band, the reference guide and the AR try-on at once. Every multiplier is <= 1.00 on purpose: 1.00 is the existing, already-tuned rendering maximum, so no look can ever render heavier than the system does today. That is what keeps the result realistic and stops it looking like a beauty filter. 'guide' is the sentence appended to a normal step; 'focalGuide' replaces it when that step is the user's selected focal point, so Makeup Look + Focal Point work together.",
+
+  "professional": {
+    "label": "Professional",
+    "desc": "Polished, clean and neat",
+    "occasion": "Work · Interviews · Meetings · Formal",
+    "intensity": { "lips": 0.78, "blush": 0.70, "eyebrows": 0.86, "contour": 0.78 },
+    "guide": {
+      "lips":     "keep the colour soft and controlled - one thin, even layer, blotted once so it reads polished rather than glossy.",
+      "blush":    "a light, neutral flush only - just enough colour to look awake under office lighting.",
+      "eyebrows": "fill only the sparse gaps and keep the front soft, so the brows look naturally neat.",
+      "contour":  "a whisper of shadow under the cheekbone, blended until no line is visible at all."
+    },
+    "focalGuide": {
+      "lips":     "your lips lead this look, so define the edge cleanly with a neat outline, then fill one even layer. Polished and controlled - never bold or dramatic.",
+      "blush":    "your cheeks lead this look, so place a soft, even flush right on the apple and blend it out completely. No visible edge, no strong colour.",
+      "eyebrows": "your brows lead this look. Fill evenly through the body, keep the front feathered, and tidy the line under the arch so the shape reads neat and professional - never drawn on.",
+      "contour":  "your contour leads this look, but keep it clean: shade the hollow lightly and buff the edges away completely, so the face looks structured rather than sculpted."
+    }
+  },
+
+  "date_casual_glam": {
+    "label": "Date / Casual Glam",
+    "desc": "Soft glam, naturally enhanced",
+    "occasion": "Dates · Dinners · Casual outings",
+    "intensity": { "lips": 0.88, "blush": 0.90, "eyebrows": 0.84, "contour": 0.82 },
+    "guide": {
+      "lips":     "a soft, flattering wash of colour pressed in from the centre outward, so the lips look naturally full.",
+      "blush":    "a warm, natural flush on the apples, blended upward so the skin looks lit from within.",
+      "eyebrows": "brush the hairs upward and fill lightly, so the brows frame your face without any hardness.",
+      "contour":  "a soft shadow under the cheekbone, blended until it only suggests structure."
+    },
+    "focalGuide": {
+      "lips":     "your lips lead this look. Press the colour in from the centre and blend the outer edge softly, so it looks full and flattering rather than drawn on.",
+      "blush":    "your cheeks lead this look. Build a soft, warm flush on the apples and sweep it gently toward the temple for a naturally glowing finish.",
+      "eyebrows": "your brows lead this look. Define the arch softly and fill through the body, keeping every stroke hair-like so the shape stays flattering and natural.",
+      "contour":  "your contour leads this look. Shade the hollow and jaw softly, then blend upward, so the face reads gently defined and never carved."
+    }
+  },
+
+  "party_glam": {
+    "label": "Party / Glam",
+    "desc": "Defined, bold and glamorous",
+    "occasion": "Parties · Events · Celebrations",
+    "intensity": { "lips": 1.00, "blush": 0.98, "eyebrows": 1.00, "contour": 1.00 },
+    "guide": {
+      "lips":     "build the colour up richer in two layers, pressing the second layer in so it stays saturated and even.",
+      "blush":    "a stronger, well-blended flush swept high along the cheekbone for a lifted, glamorous finish.",
+      "eyebrows": "define the arch and tail clearly, filling the body fully while keeping the front softer.",
+      "contour":  "shade the cheekbone and jaw more deeply, then blend the transition so the definition stays smooth."
+    },
+    "focalGuide": {
+      "lips":     "your lips carry this look. Outline the shape fully, then build the colour in two layers for a rich, glamorous finish - keep the edge sharp and clean.",
+      "blush":    "your cheeks carry this look. Build the colour up on the apples and sweep it high toward the temple, blending the edges so the flush reads bold but still smooth.",
+      "eyebrows": "your brows carry this look. Fill the body fully, define the arch and tail with a clear line, and keep the front blended so the shape is strong but never blocky.",
+      "contour":  "your contour carries this look. Build the shadow deeper through the hollow and along the jaw, then blend the top edge thoroughly so the sculpting stays believable."
+    }
+  },
+
+  "school": {
+    "label": "School Look",
+    "desc": "Simple, fresh and natural",
+    "occasion": "School · Class · Everyday",
+    "intensity": { "lips": 0.66, "blush": 0.64, "eyebrows": 0.72, "contour": 0.58 },
+    "guide": {
+      "lips":     "the lightest wash of colour - dab it on with your fingertip so it only tints the lips.",
+      "blush":    "the smallest touch of colour on the apples, blended out until it looks like a natural flush.",
+      "eyebrows": "brush the brows into shape and fill only where hair is actually missing.",
+      "contour":  "the faintest shadow under the cheekbone, blended right out. Skip it entirely if it starts to show."
+    },
+    "focalGuide": {
+      "lips":     "your lips lead this look, but keep it simple: one sheer wash of colour patted in from the centre. Fresh and natural, nothing bold.",
+      "blush":    "your cheeks lead this look. Tap a small amount onto the apples and blend it out fully, so it reads as your own healthy colour.",
+      "eyebrows": "your brows lead this look. Brush them up, fill only the gaps with light hair-like strokes, and leave the shape natural - no hard lines.",
+      "contour":  "your contour leads this look, but keep it barely there: a light shadow in the hollow, blended completely so it only softens the face."
+    }
+  }
+}
