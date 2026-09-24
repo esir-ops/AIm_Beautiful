@@ -1,38 +1,43 @@
 {
   "light_warm": {
-    "lips":     { "shade": "Headstrong",        "product": "Soft Matte Lipstick",          "brand": "Squad Cosmetics",  "slot": 1, "hex": "#D4857A" },
-    "blush":    { "shade": "Soft Serve",         "product": "Soft Serve Melting Blush",     "brand": "Squad Cosmetics",  "slot": 2, "hex": "#F0A898" },
-    "eyebrows": { "shade": "Taupe",              "product": "Brow Game Eyebrow Pencil",     "brand": "Squad Cosmetics",  "slot": 3, "hex": "#9A8270" },
-    "contour":  { "shade": "Warm Contour",       "product": "Contour and Blush Palette",    "brand": "Detail Cosmetics", "slot": 4, "hex": "#C09070" }
+    "lips":     { "shade": "Peaches",          "product": "Mellow Matte",               "brand": "Squad Cosmetics",  "slot": 1, "hex": "#AA5752" },
+    "blush":    { "shade": "Peach Out",        "product": "Multiuse Heart Paint",       "brand": "Chu Chü Beauty",   "slot": 2, "hex": "#EAAB9D" },
+    "eyebrows": { "shade": "Soft Brown",       "product": "Brow Fix Slim",              "brand": "Squad Cosmetics",  "slot": 3, "hex": "#6D514A" },
+    "contour":  { "shade": "Chiselled",        "product": "Clay Pen",                   "brand": "Detail Cosmetics", "slot": 4, "hex": "#A08472" }
   },
+
   "light_cool": {
-    "lips":     { "shade": "Ms. President",      "product": "Jelly Lips Lip Plumper",       "brand": "Detail Cosmetics", "slot": 1, "hex": "#E090A8" },
-    "blush":    { "shade": "Iced Scramble",      "product": "Soft Serve Melting Blush",     "brand": "Squad Cosmetics",  "slot": 2, "hex": "#F0B8C8" },
-    "eyebrows": { "shade": "Brunette",           "product": "Brow Game Eyebrow Pencil",     "brand": "Squad Cosmetics",  "slot": 3, "hex": "#8B7060" },
-    "contour":  { "shade": "Cool Contour",       "product": "Contour and Blush Vol. II",    "brand": "Detail Cosmetics", "slot": 4, "hex": "#B8A090" }
+    "lips":     { "shade": "Rosie",            "product": "Mellow Matte",               "brand": "Squad Cosmetics",  "slot": 1, "hex": "#9A4957" },
+    "blush":    { "shade": "Ballet Pink",      "product": "Multiuse Heart Paint",       "brand": "Chu Chü Beauty",   "slot": 2, "hex": "#EFBBC0" },
+    "eyebrows": { "shade": "Ash Brown",        "product": "Brow Fix Slim",              "brand": "Squad Cosmetics",  "slot": 3, "hex": "#856D67" },
+    "contour":  { "shade": "Chiselled",        "product": "Clay Pen",                   "brand": "Detail Cosmetics", "slot": 4, "hex": "#A08472" }
   },
+
   "medium_warm": {
-    "lips":     { "shade": "Vigorous",           "product": "Soft Matte Lipstick",          "brand": "Squad Cosmetics",  "slot": 1, "hex": "#C07060" },
-    "blush":    { "shade": "Tutti Frutti",       "product": "Soft Serve Melting Blush",     "brand": "Squad Cosmetics",  "slot": 2, "hex": "#E09080" },
-    "eyebrows": { "shade": "Chocolate",          "product": "Brow Game Eyebrow Pencil",     "brand": "Squad Cosmetics",  "slot": 3, "hex": "#7A5838" },
-    "contour":  { "shade": "Deep Warm Contour",  "product": "Contour and Blush Palette",    "brand": "Detail Cosmetics", "slot": 4, "hex": "#A07050" }
+    "lips":     { "shade": "Gentle",           "product": "Mellow Matte",               "brand": "Squad Cosmetics",  "slot": 1, "hex": "#8E4B43" },
+    "blush":    { "shade": "Cheeky Coral",     "product": "Multiuse Heart Paint",       "brand": "Chu Chü Beauty",   "slot": 2, "hex": "#E68D8B" },
+    "eyebrows": { "shade": "Warm Brown",       "product": "Brow Fix Slim",              "brand": "Squad Cosmetics",  "slot": 3, "hex": "#5F4036" },
+    "contour":  { "shade": "Sculpt",           "product": "Clay Pen",                   "brand": "Detail Cosmetics", "slot": 4, "hex": "#9B7159" }
   },
+
   "medium_cool": {
-    "lips":     { "shade": "Hibiscus",           "product": "Melting Touch Velvet Blush",   "brand": "Detail Cosmetics", "slot": 1, "hex": "#B07888" },
-    "blush":    { "shade": "Butternut",          "product": "Soft Serve Melting Blush",     "brand": "Squad Cosmetics",  "slot": 2, "hex": "#C09080" },
-    "eyebrows": { "shade": "Mocha",              "product": "Superfine Liner Liquid Brow",  "brand": "Detail Cosmetics", "slot": 3, "hex": "#6A5040" },
-    "contour":  { "shade": "Cool Contour",       "product": "Contour and Blush Vol. II",    "brand": "Detail Cosmetics", "slot": 4, "hex": "#9A8878" }
+    "lips":     { "shade": "Old Money",        "product": "Mellow Matte",               "brand": "Squad Cosmetics",  "slot": 1, "hex": "#944C4E" },
+    "blush":    { "shade": "Berry Cute",       "product": "Multiuse Heart Paint",       "brand": "Chu Chü Beauty",   "slot": 2, "hex": "#CC8E8D" },
+    "eyebrows": { "shade": "Taupe Brown",      "product": "Brow Fix Slim",              "brand": "Squad Cosmetics",  "slot": 3, "hex": "#5F4B44" },
+    "contour":  { "shade": "Craft",            "product": "Clay Pen",                   "brand": "Detail Cosmetics", "slot": 4, "hex": "#6A5F58" }
   },
+
   "dark_warm": {
-    "lips":     { "shade": "Berries and Cream",  "product": "Soft Serve Melting Blush",     "brand": "Squad Cosmetics",  "slot": 1, "hex": "#8B4A38" },
-    "blush":    { "shade": "Neapolitan",         "product": "Soft Serve Melting Blush",     "brand": "Squad Cosmetics",  "slot": 2, "hex": "#A06048" },
-    "eyebrows": { "shade": "Chocolate",          "product": "Brow Game Eyebrow Pencil",     "brand": "Squad Cosmetics",  "slot": 3, "hex": "#4A3020" },
-    "contour":  { "shade": "Deep Warm Contour",  "product": "Contour and Blush Palette",    "brand": "Detail Cosmetics", "slot": 4, "hex": "#7A5030" }
+    "lips":     { "shade": "Timeless",         "product": "Mellow Matte",               "brand": "Squad Cosmetics",  "slot": 1, "hex": "#8A4B41" },
+    "blush":    { "shade": "Creamside Rose",   "product": "Multiuse Heart Paint",       "brand": "Chu Chü Beauty",   "slot": 2, "hex": "#BE5E4F" },
+    "eyebrows": { "shade": "Natural Brunette", "product": "Brow Fix Slim",              "brand": "Squad Cosmetics",  "slot": 3, "hex": "#302320" },
+    "contour":  { "shade": "Clay",             "product": "Clay Pen",                   "brand": "Detail Cosmetics", "slot": 4, "hex": "#754B35" }
   },
+
   "dark_cool": {
-    "lips":     { "shade": "Hibiscus",           "product": "Melting Touch Velvet Blush",   "brand": "Detail Cosmetics", "slot": 1, "hex": "#7A3A58" },
-    "blush":    { "shade": "Berries and Cream",  "product": "Soft Serve Melting Blush",     "brand": "Squad Cosmetics",  "slot": 2, "hex": "#8A4858" },
-    "eyebrows": { "shade": "Mocha",              "product": "Superfine Liner Liquid Brow",  "brand": "Detail Cosmetics", "slot": 3, "hex": "#3A2830" },
-    "contour":  { "shade": "Cool Contour",       "product": "Contour and Blush Vol. II",    "brand": "Detail Cosmetics", "slot": 4, "hex": "#6A5060" }
+    "lips":     { "shade": "Romantic",         "product": "Mellow Matte",               "brand": "Squad Cosmetics",  "slot": 1, "hex": "#7C2D2E" },
+    "blush":    { "shade": "Crimson Flush",    "product": "Multiuse Heart Paint",       "brand": "Chu Chü Beauty",   "slot": 2, "hex": "#A23C3B" },
+    "eyebrows": { "shade": "Brown Black",      "product": "Brow Fix Slim",              "brand": "Squad Cosmetics",  "slot": 3, "hex": "#4A3535" },
+    "contour":  { "shade": "Craft",            "product": "Clay Pen",                   "brand": "Detail Cosmetics", "slot": 4, "hex": "#6A5F58" }
   }
 }

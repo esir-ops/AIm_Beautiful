@@ -1,10 +1,10 @@
 {
-  "_comment": "Foundation checker stage (Objective 8). The system recommends a shade from the detected skin tone and confirms readiness only - it does not verify the shade actually used, and provides no AR guide for foundation. Slot 5 is reserved for foundation on the product tray. Verify shade names against your physical tray inventory before evaluation.",
+  "_comment": "Foundation checker stage (Objective 8). The system recommends a shade from the detected skin tone and confirms readiness only - it does not verify the shade actually used, and provides no AR guide for foundation. Slot 5 is reserved for foundation on the product tray. All shades are Detail Cosmetics Fresh Filter (natural finish foundation); shade names and undertones follow Detail's official shade descriptions. Hex values are approximations of each described shade and should be replaced with values sampled from the official swatch image once available. Detail notes the formula oxidizes slightly and advises 1-2 shades lighter than usual. Verify shade names against your physical tray inventory before evaluation.",
 
-  "light_warm":  { "shade": "Warm Ivory",   "product": "Skin Fit Second Skin Foundation", "brand": "Squad Cosmetics",  "slot": 5, "hex": "#EBC9A8" },
-  "light_cool":  { "shade": "Cool Porcelain","product": "Flawless Finish Foundation",      "brand": "Detail Cosmetics", "slot": 5, "hex": "#EDC8B4" },
-  "medium_warm": { "shade": "Golden Beige", "product": "Skin Fit Second Skin Foundation",  "brand": "Squad Cosmetics",  "slot": 5, "hex": "#C99A72" },
-  "medium_cool": { "shade": "Rose Beige",   "product": "Flawless Finish Foundation",       "brand": "Detail Cosmetics", "slot": 5, "hex": "#C09684" },
-  "dark_warm":   { "shade": "Warm Caramel", "product": "Skin Fit Second Skin Foundation",  "brand": "Squad Cosmetics",  "slot": 5, "hex": "#96663F" },
-  "dark_cool":   { "shade": "Cool Espresso","product": "Flawless Finish Foundation",       "brand": "Detail Cosmetics", "slot": 5, "hex": "#8A6255" }
+  "light_warm":  { "shade": "Oat",       "product": "Fresh Filter", "brand": "Detail Cosmetics", "slot": 5, "hex": "#E9C7A0" },
+  "light_cool":  { "shade": "Almond",    "product": "Fresh Filter", "brand": "Detail Cosmetics", "slot": 5, "hex": "#EECAB8" },
+  "medium_warm": { "shade": "Cashew",    "product": "Fresh Filter", "brand": "Detail Cosmetics", "slot": 5, "hex": "#C99B74" },
+  "medium_cool": { "shade": "Macadamia", "product": "Fresh Filter", "brand": "Detail Cosmetics", "slot": 5, "hex": "#C39A82" },
+  "dark_warm":   { "shade": "Walnut",    "product": "Fresh Filter", "brand": "Detail Cosmetics", "slot": 5, "hex": "#99683F" },
+  "dark_cool":   { "shade": "Chestnut",  "product": "Fresh Filter", "brand": "Detail Cosmetics", "slot": 5, "hex": "#86604F" }
 }
