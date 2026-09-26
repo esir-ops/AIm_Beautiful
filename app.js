@@ -2128,11 +2128,18 @@ function zoneRegionPts(lm, step, W, H) {
     {outer:CHEEK_HOLLOW_L.map(P), inner:null},
     {outer:CHEEK_HOLLOW_R.map(P), inner:null},
   ];
-  // blush - apples of the cheeks
-  return [
-    {outer:[123,50,205,206,207,187].map(P), inner:null},
-    {outer:[352,280,425,426,427,411].map(P), inner:null},
-  ];
+  // blush - the same ellipses the guide draws, so the check reads where the user
+  // was told to apply it (the old cheek landmarks sat mostly below the guide)
+  return zoneShapes(lm,'blush',W,H).map(e=>({outer:ellipsePts(e,24), inner:null}));
+}
+
+function ellipsePts(e, n) {
+  const c=Math.cos(e.rot), s=Math.sin(e.rot), pts=[];
+  for (let i=0;i<n;i++){
+    const a=i/n*Math.PI*2, u=Math.cos(a)*e.rx, v=Math.sin(a)*e.ry;
+    pts.push({x:e.cx+u*c-v*s, y:e.cy+u*s+v*c});
+  }
+  return pts;
 }
 
 // Average the robust samples of a step's regions in one frame.
@@ -2164,7 +2171,10 @@ function captureBaseline(image, lm) {
     const base={ skin };
     // Top and bottom lip too, since the lip step checks each one on its own.
     [...STEPS,'lips_top','lips_bottom'].forEach(s=>{ base[s]=measureZone(fd,lm,s,W,H); });
+    base.q={};
+    [...STEPS,'lips_top','lips_bottom'].forEach(s=>{ try { base.q[s]=qualityZoneStats(fd,lm,s,W,H); } catch(_){} });
     STATE.baseline=base;
+    STATE.baselineHadProduct={};
     console.log('[baseline] bare-face reference captured', base);
   } catch(e){ console.warn('[baseline] capture failed:', e.message); STATE.baseline=null; }
 }
@@ -2186,7 +2196,7 @@ function compareToBaseline(frameData, lm, step, W, H) {
 
   const dR=now.r-exp.r, dG=now.g-exp.g, dB=now.b-exp.b;
   return {
-    now, expected:exp,
+    now, expected:exp, nowSkin,
     delta: Math.abs(dR)+Math.abs(dG)+Math.abs(dB),   // total colour change
     darker: (exp.r*.299+exp.g*.587+exp.b*.114)-(now.r*.299+now.g*.587+now.b*.114),
     satGain: now.sat - b[step].sat,
@@ -2675,15 +2685,12 @@ const LIP_QUALITY_ZONE = ['lips_top','lips_bottom','lips'];
 // Top and bottom lip use the whole-lip tolerances.
 const qualityBaseStep = s => (s==='lips_top'||s==='lips_bottom') ? 'lips' : s;
 
-function analyzeQualityHeuristic(video, lm, zone) {
+// Pixel statistics for a zone: how far it and the ring around it sit from forehead
+// skin. Run on the before photo too, so later checks can measure the change.
+function qualityZoneStats(frame, lm, zone, W, H) {
   const step=qualityBaseStep(zone);
-  const W=video.videoWidth||640, H=video.videoHeight||480;
   const mk=()=>{const c=document.createElement('canvas');c.width=W;c.height=H;
                 return c.getContext('2d',{willReadFrequently:true});};
-
-  const fx=mk(); fx.drawImage(video,0,0,W,H);
-  const frame=fx.getImageData(0,0,W,H).data;
-
   const shapes=zoneShapes(lm,zone,W,H);
   const ix=mk(); paintZone(ix,shapes,1.0);
   const ox=mk(); paintZone(ox,shapes,QUALITY_HALO[step]||1.45);
@@ -2704,30 +2711,66 @@ function analyzeQualityHeuristic(video, lm, zone) {
   const skin={r:sr/sn, g:sg/sn, b:sb/sn};
 
   const devIn=[], devHalo=[];
+  let hr=0,hg=0,hb=0;
+  // Around the cheek, pixels that are darker but not pinker than skin are contour or
+  // shadow, not blush that spread past the guide.
+  const skinBr=skin.r*.299+skin.g*.587+skin.b*.114, skinRed=skin.r-skin.g;
+  const notBlush=m=>frame[m]*.299+frame[m+1]*.587+frame[m+2]*.114 < skinBr-15
+                  && frame[m]-frame[m+1] < skinRed+12;
   for (let y=0;y<H;y+=2) for (let x=0;x<W;x+=2){
     const m=(y*W+x)*4;
     const isIn=inD[m+3]>200, isOut=outD[m+3]>200;
     if (!isIn && !isOut) continue;
     const d=Math.abs(frame[m]-skin.r)+Math.abs(frame[m+1]-skin.g)+Math.abs(frame[m+2]-skin.b);
-    if (isIn) devIn.push(d); else devHalo.push(d);
+    if (isIn) devIn.push(d);
+    else if (step!=='blush' || !notBlush(m)){ devHalo.push(d); hr+=frame[m]; hg+=frame[m+1]; hb+=frame[m+2]; }
   }
   if (devIn.length<40) return null;
-
   const mean=a=>a.reduce((s,v)=>s+v,0)/a.length;
   const rawAmount=mean(devIn);
-
-  // Subtract how much the zone differed from skin in the before photo, so "amount"
-  // measures product, not anatomy.
-  let natural=0;
-  const b=STATE.baseline;
-  if (b && b[step] && b.skin){
-    natural=Math.abs(b[step].r-b.skin.r)+Math.abs(b[step].g-b.skin.g)+Math.abs(b[step].b-b.skin.b);
-  }
-  const amount=Math.max(0, rawAmount-natural);
-
   const sd=Math.sqrt(mean(devIn.map(v=>(v-rawAmount)*(v-rawAmount))));
+  const n=devHalo.length;
+  return { rawAmount, sd, skin, halo: n>20 ? mean(devHalo) : null,
+           haloRGB: n>20 ? {r:hr/n, g:hg/n, b:hb/n} : null };
+}
+
+function analyzeQualityHeuristic(video, lm, zone) {
+  const step=qualityBaseStep(zone);
+  const W=video.videoWidth||640, H=video.videoHeight||480;
+  const fc=document.createElement('canvas'); fc.width=W; fc.height=H;
+  const fx=fc.getContext('2d',{willReadFrequently:true});
+  fx.drawImage(video,0,0,W,H);
+  const frame=fx.getImageData(0,0,W,H).data;
+
+  const st=qualityZoneStats(frame, lm, zone, W, H);
+  if (!st) return null;
+  const {rawAmount, sd}=st;
+  const b=STATE.baseline;
+  const before=b?.q?.[zone];
+
+  // Amount is the colour change since the before photo (same measure as detection).
+  // Without one, fall back to the zone's difference from skin minus its natural one.
+  const cmp=compareToBaseline(frame, lm, zone, W, H);
+  let amount;
+  if (cmp) amount=cmp.delta;
+  else {
+    let natural=0;
+    if (b && b[step] && b.skin)
+      natural=Math.abs(b[step].r-b.skin.r)+Math.abs(b[step].g-b.skin.g)+Math.abs(b[step].b-b.skin.b);
+    amount=Math.max(0, rawAmount-natural);
+  }
+
   const uneven=sd/(rawAmount+8);
-  const smudge=devHalo.length>20 ? mean(devHalo)/(rawAmount+8) : 0;
+  // Smudging is how much the ring around the guide changed, relative to the zone.
+  // Eyes, brows and shadows already differ from forehead skin in the before photo,
+  // so only the change counts.
+  let smudge=0;
+  if (st.haloRGB && before?.haloRGB && before.skin){
+    // Ring colour change since the before photo, corrected for room light.
+    const k=ch=>before.skin[ch]>4 ? st.skin[ch]/before.skin[ch] : 1;
+    const ringDelta=['r','g','b'].reduce((t,ch)=>t+Math.abs(st.haloRGB[ch]-before.haloRGB[ch]*k(ch)),0);
+    smudge=ringDelta/(amount+8);
+  } else if (st.halo!==null) smudge=st.halo/(rawAmount+8);
 
   const band=QUALITY_BAND[step]||QUALITY_BAND.lips;
   // Move the accepted amount to the chosen coverage, so a sheer look isn't flagged
@@ -2822,11 +2865,24 @@ function qualityMessage(step, q) {
     : 'Application quality needs a small adjustment before moving on.';
 }
 
+// Steps the trained model is used for. It has only been trained on lips, so blush,
+// eyebrows and contour keep the pixel analysis. Add a step here once it's trained.
+const QUALITY_MODEL_STEPS = new Set(['lips']);
+
 // Public entry point: model first, analytical fallback second.
 async function analyzeApplicationQuality(video, lm, step) {
   await initQualityModel();
   let q=null;
-  try { q=await analyzeQualityModel(video,lm,step); } catch(e){ q=null; }
+  if (QUALITY_MODEL_STEPS.has(step)){
+    try { q=await analyzeQualityModel(video,lm,step); } catch(e){ q=null; }
+  }
+  // Amount and smudging are measured against the bare before photo. If that photo
+  // already had makeup here, there's nothing to measure against, so don't judge.
+  if (!q && STATE.baselineHadProduct?.[step]){
+    const na={ok:true,text:'Not assessed (before photo already had makeup)'};
+    return { source:'unavailable', passed:true, metrics:{}, issues:[],
+             verdicts:{smudge:na, uneven:na, amount:na}, message:null };
+  }
   if (!q){
     try { q=analyzeQualityHeuristic(video,lm,step); } catch(e){ q=null; }
   }
@@ -2891,10 +2947,14 @@ async function checkPlacement() {
     return;
   }
 
-  const r=analyzeZoneColor(vid,lm,step);
+  // Blush shades close to the skin (e.g. peach on School) can be invisible to the
+  // camera, especially if the before photo already had blush. Never trap the user
+  // there: offer to continue, and the summary says it wasn't confirmed.
+  const canContinue = step==='blush';
+  const r = step==='blush' ? await analyzeBlushAsync(vid,lm) : analyzeZoneColor(vid,lm,step);
   if (!r.passed){
     recordStepResult(step,{passed:false,message:r.message,quality:null});
-    showFeedback(false,r.message);
+    showFeedback(false,r.message,null,canContinue);
     return;
   }
   // Placement is correct - now judge how well it was applied.
@@ -2902,7 +2962,7 @@ async function checkPlacement() {
   const passed=q.passed;
   const message=passed?r.message:q.message;
   recordStepResult(step,{passed,message,quality:q});
-  showFeedback(passed,message,q);
+  showFeedback(passed,message,q,canContinue);
 }
 
 // The colour rules miss nude shades and some lighting. If the trained model sees
@@ -3018,6 +3078,7 @@ async function analyzeLipSubStepAsync(video, lm, subStep) {
       satInc:lip.sat-ck.sat,
       red:  (lip.r-lip.g)-(ck.r-ck.g),
       pink: (lip.r-lip.b)-(ck.r-ck.b),
+      skR:ck.r, skG:ck.g, skB:ck.b,
     });
   }
 
@@ -3041,8 +3102,19 @@ async function analyzeLipSubStepAsync(video, lm, subStep) {
     ? baselineVerdict(firstFrame.data, lm, LIP_QUALITY_ZONE[subStep]||'lips', firstFrame.W, firstFrame.H)
     : null;
 
+  // How the recommended shade should look on these lips in this light.
+  const skinNow={r:med('skR'), g:med('skG'), b:med('skB')};
+  const target=lipShadeTarget(activeShades()?.lips?.hex, skinNow, bv?.cmp.expected||null);
+
   if (bv){
     detected = bv.applied;
+    // A light wash can change the colour only a little. It still counts if the lips
+    // clearly moved toward the product and away from how they looked bare.
+    if (!detected && target){
+      const d=(a,b)=>Math.abs(a.r-b.r)+Math.abs(a.g-b.g)+Math.abs(a.b-b.b);
+      const now={r,g,b}, bare=bv.cmp.expected;
+      detected = bv.cmp.delta>12*bv.light && d(now,target.full) < d(bare,target.full)-10*bv.light;
+    }
   } else {
     const isLip=(x)=>x.sat>0.24 && x.dev>46 && x.devFH>54 && x.satInc>0.12 &&
                      (x.red>24 || x.pink>26);
@@ -3077,19 +3149,97 @@ async function analyzeLipSubStepAsync(video, lm, subStep) {
   if (satIQR>0.26)
     return {passed:false,message:'Application is uneven. Some areas look bare or patchy. Blend more evenly right to the outline edges, then check again.'};
 
-  const recShade=activeShades()?.lips;
-  const shadeHex=recShade?.hex;
-  if(!shadeHex||shadeHex.length<7) return{passed:true,warning:false,message:'Lipstick applied and recognized! Great coverage.'};
-  const sr=parseInt(shadeHex.slice(1,3),16),sg=parseInt(shadeHex.slice(3,5),16),sb=parseInt(shadeHex.slice(5,7),16);
-  const recBr=sr*0.299+sg*0.587+sb*0.114;
-  const shadeDist=Math.abs(r-sr)+Math.abs(g-sg)+Math.abs(b-sb);
-  const brightDiff=br-recBr;
-  if(shadeDist<=70) return{passed:true,warning:false,message:'Lipstick applied and recognized. The shade matches your recommendation! Looks beautiful.'};
+  if(!target) return{passed:true,warning:false,message:'Lipstick applied and recognized! Great coverage.'};
+  // Compare with the predicted colour, not the swatch: a swatch is the product in
+  // studio light, and on a webcam every lipstick looks darker than that.
+  const e=target.expected;
+  const shadeDist=Math.abs(r-e.r)+Math.abs(g-e.g)+Math.abs(b-e.b);
+  const brightDiff=br-(e.r*0.299+e.g*0.587+e.b*0.114);
+  const bare=bv?.cmp.expected;
+  const bareBr=bare ? bare.r*0.299+bare.g*0.587+bare.b*0.114 : null;
+  // Lipstick can only be "too dark" if the lips ended up darker than they were bare.
+  const light=roomLight(skinNow);
+  const tooDark  = brightDiff<-60*light && (bareBr===null || br<bareBr-20*light);
+  const tooLight = brightDiff>60*light;
+  const matchMsg='Lipstick applied and recognized. The shade matches your recommendation! Looks beautiful.';
+  if(shadeDist<=110 && !tooDark && !tooLight) return{passed:true,warning:false,message:matchMsg};
   let shadeMsg;
-  if(brightDiff>45) shadeMsg='Too light. Your lipstick is lighter than the recommended shade. Try a deeper application or a darker product.';
-  else if(brightDiff<-45) shadeMsg='Too dark. Your lipstick is darker than the recommended shade. Try a lighter application or a brighter product.';
-  else shadeMsg="Wrong shade. The colour doesn't match the recommendation. Try the suggested shade for the best result.";
+  if(tooLight) shadeMsg='Too light. Your lipstick is lighter than the recommended shade. Try a deeper application or a darker product.';
+  else if(tooDark) shadeMsg='Too dark. Your lipstick is darker than the recommended shade. Try a lighter application or a brighter product.';
+  else if(shadeDist>170) shadeMsg="Wrong shade. The colour doesn't match the recommendation. Try the suggested shade for the best result.";
+  else return{passed:true,warning:false,message:'Lipstick applied and recognized! Great coverage.'};
   return{passed:true,warning:true,message:shadeMsg};
+}
+
+// Predicts how a lipstick swatch should look on camera. The swatch is scaled by how
+// the camera sees the skin compared with the analysed skin tone (room light and
+// white balance), then mixed with the bare lip for sheer looks.
+// full = the product at full coverage, expected = at this look's coverage.
+function lipShadeTarget(hex, skinNow, bareLip, step='lips') {
+  if (!hex || hex.length<7 || !skinNow) return null;
+  const shade={r:parseInt(hex.slice(1,3),16), g:parseInt(hex.slice(3,5),16), b:parseInt(hex.slice(5,7),16)};
+  const ref=toneToRGB(STATE.toneKey||'medium_warm');
+  const gain=ch=>Math.max(0.35, Math.min(1.6, skinNow[ch]/Math.max(20,ref[ch])));
+  const full={r:shade.r*gain('r'), g:shade.g*gain('g'), b:shade.b*gain('b')};
+  if (!bareLip) return {full, expected:full};
+  const cov=Math.max(0.45, Math.min(1, styleIntensity(step)));
+  const mix=ch=>cov*full[ch]+(1-cov)*bareLip[ch];
+  return {full, expected:{r:mix('r'), g:mix('g'), b:mix('b')}};
+}
+
+// ── Blush analysis over several frames ──
+// Works like the lip check: reads the guide area over several frames and passes if
+// any of these show blush: a change since the before photo, a shift toward the
+// recommended shade, or cheeks that read warmer/pinker than skin or match the shade
+// as the camera would see it. The last two work even if the before photo had blush.
+async function analyzeBlushAsync(video, lm) {
+  const FRAMES=4, DELAY=70, reads=[];
+  let first=null;
+  for (let f=0;f<FRAMES;f++){
+    if (f>0) await new Promise(res=>setTimeout(res,DELAY));
+    const W=video.videoWidth||640, H=video.videoHeight||480;
+    const c=document.createElement('canvas'); c.width=W; c.height=H;
+    const x=c.getContext('2d',{willReadFrequently:true}); x.drawImage(video,0,0,W,H);
+    const fd=x.getImageData(0,0,W,H).data;
+    const cheek=measureZone(fd,lm,'blush',W,H);
+    if (!cheek) continue;
+    const t=toneToRGB(STATE.toneKey||'medium_warm');
+    const skin=measureSkin(fd,lm,W,H)||t;
+    reads.push({r:cheek.r,g:cheek.g,b:cheek.b, sr:skin.r,sg:skin.g,sb:skin.b});
+    if (!first) first={fd,W,H};
+  }
+  if (reads.length<3)
+    return {passed:false,message:'Could not read your cheeks clearly. Face the camera in even light and hold still, then check again.'};
+
+  const med=k=>{const a=reads.map(v=>v[k]).sort((p,q)=>p-q),m=a.length>>1;return a.length%2?a[m]:(a[m-1]+a[m])/2;};
+  const now={r:med('r'),g:med('g'),b:med('b')}, skin={r:med('sr'),g:med('sg'),b:med('sb')};
+  const d=(a,b)=>Math.abs(a.r-b.r)+Math.abs(a.g-b.g)+Math.abs(a.b-b.b);
+  const bv=STATE.baseline ? baselineVerdict(first.fd,lm,'blush',first.W,first.H) : null;
+  const bare=bv?.cmp.expected||null;
+  const target=lipShadeTarget(activeShades()?.blush?.hex, skin, bare, 'blush');
+  const k=detectScale('blush',skin), light=roomLight(skin);
+
+  const warm=(now.r-now.g)-(skin.r-skin.g), pink=(now.r-now.b)-(skin.r-skin.b);
+  const satGain=rgbSat(now.r,now.g,now.b)-rgbSat(skin.r,skin.g,skin.b);
+  const changed    = !!bv?.applied;
+  const towardShade= !!(bv && target && bv.cmp.delta>8*light && d(now,target.full)<d(bare,target.full)-8*light);
+  const visible    = (warm>14*k || pink>14*k) && satGain>0.03*k;
+  const matchShade = !!(target && d(now,target.expected)<=55*light && (warm>6*k || pink>6*k));
+  const detected=changed||towardShade||visible||matchShade;
+  console.log('[blush]', {detected, changed, towardShade, visible, matchShade,
+    cheek:[now.r,now.g,now.b].map(Math.round), skin:[skin.r,skin.g,skin.b].map(Math.round),
+    warm:Math.round(warm), pink:Math.round(pink), satGain:+satGain.toFixed(3), k:+k.toFixed(2),
+    change:bv?Math.round(bv.cmp.delta):null});
+
+  if (!detected){
+    return {passed:false, message: bv
+      ? 'No blush detected. Your cheeks look the same as in your before photo. Apply colour within the guide in even light, then check again.'
+      : 'No blush detected. Apply colour to the apples of your cheeks within the guide.'};
+  }
+  // Blush found without a change since the before photo: that photo already had blush,
+  // so the quality check can't measure amount or spread against it.
+  STATE.baselineHadProduct={...(STATE.baselineHadProduct||{}), blush:!!(bv && !changed)};
+  return {passed:true, message:goodMessages.blush};
 }
 
 // ── Zone colour analysis ──
@@ -3102,6 +3252,18 @@ const BASELINE_MIN = {
   contour:  { delta:20, extra:(c,k)=>c.darker>7*k },
 };
 
+// Threshold scale for a step: lower for sheer looks and dim rooms.
+function detectScale(step, skin) {
+  const cov=Math.max(0.45, Math.min(1, styleIntensity(step)));
+  return (0.35+0.65*cov)*roomLight(skin);
+}
+
+// 1 in a normal or bright room, down to 0.5 in a dim one, from the skin's brightness.
+function roomLight(skin) {
+  if (!skin) return 1;
+  return Math.max(0.5, Math.min(1, (skin.r*0.299+skin.g*0.587+skin.b*0.114)/165));
+}
+
 // Has this step been applied? Judged against the before photo. null if there's no baseline.
 function baselineVerdict(frameData, lm, step, W, H) {
   const c=compareToBaseline(frameData, lm, step, W, H);
@@ -3111,23 +3273,32 @@ function baselineVerdict(frameData, lm, step, W, H) {
   // A sheer look (School: "the lightest wash") changes the colour much less, so it
   // needs less change to count. Same scaling as the quality check's minimum amount.
   const cov=Math.max(0.45, Math.min(1, styleIntensity(base)));
-  const k=0.35+0.65*cov;
+  // In a dim room every colour difference is smaller too.
+  const light=roomLight(c.nowSkin);
+  const k=(0.35+0.65*cov)*light;
   const applied = c.delta>rule.delta*k && rule.extra(c,k);
-  return {applied, cmp:c, k:+k.toFixed(2)};
+  return {applied, cmp:c, k:+k.toFixed(2), light:+light.toFixed(2)};
 }
 
-function analyzeZoneColor(video, lm, step, sampleOverride) {
+function analyzeZoneColor(video, lm, step, sampleOverride, skipBaseline) {
   try {
     const W=video.videoWidth||640, H=video.videoHeight||480;
     const tmp=document.createElement('canvas'); tmp.width=W; tmp.height=H;
     const tctx=tmp.getContext('2d',{willReadFrequently:true}); tctx.drawImage(video,0,0,W,H);
 
     // ── Baseline decision (used whenever a before photo exists) ──
-    if (step!=='lips' && STATE.baseline){
+    if (step!=='lips' && STATE.baseline && !skipBaseline){
       const fd=tctx.getImageData(0,0,W,H).data;
       const bv=baselineVerdict(fd, lm, step, W, H);
       if (bv){
         if (!bv.applied){
+          // Unchanged can also mean the before photo was taken with makeup already
+          // on. If product is plainly visible now, accept it.
+          const now=analyzeZoneColor(video, lm, step, sampleOverride, true);
+          if (now.passed){
+            STATE.baselineHadProduct={...(STATE.baselineHadProduct||{}), [step]:true};
+            return now;
+          }
           const noun={blush:'blush',eyebrows:'brow',contour:'contour'}[step]||step;
           return {passed:false, message:
             `No ${noun} product detected. This area looks the same as your before photo. `+
@@ -3143,8 +3314,8 @@ function analyzeZoneColor(video, lm, step, sampleOverride) {
     }
     const zone=sampleLandmarks(sampleOverride||SAMPLE_IDX[step]||[]);
     if (!zone) return{passed:true,message:goodMessages[step]};
-    const {r,g,b}=zone;
-    const br=r*.299+g*.587+b*.114;
+    let {r,g,b}=zone;
+    let br=r*.299+g*.587+b*.114;
 
     if (step==='lips'){
       const cheek=sampleLandmarks([50,280,205,425,36,266]);
@@ -3188,17 +3359,21 @@ function analyzeZoneColor(video, lm, step, sampleOverride) {
     if (step==='blush'){
       const skinRef=sampleLandmarks([10,9,151,107,336]);
       const sk=skinRef??toneToRGB(STATE.toneKey||'medium_warm');
+      // Read the whole guide area, not 8 single points.
+      const reg=measureZone(tctx.getImageData(0,0,W,H).data, lm, 'blush', W, H);
+      if (reg && !sampleOverride){ r=reg.r; g=reg.g; b=reg.b; br=r*.299+g*.587+b*.114; }
       const dev=Math.abs(r-sk.r)+Math.abs(g-sk.g)+Math.abs(b-sk.b);
       const satIncrease=rgbSat(r,g,b)-rgbSat(sk.r,sk.g,sk.b);
       const pinkShift=(r-b)-(sk.r-sk.b);
       const warmShift=(r-g)-(sk.r-sk.g);
       const absSat=rgbSat(r,g,b);
+      const k=detectScale('blush', sk);
       // All conditions must hold - guards against lighting variation and natural flush
-      const detected=br>35&&br<235&&dev>42&&satIncrease>0.10&&absSat>0.30&&(pinkShift>26||warmShift>26);
+      const detected=br>35&&br<235&&dev>42*k&&satIncrease>0.10*k&&absSat>0.30*k&&(pinkShift>26*k||warmShift>26*k);
       if (!detected){
         let msg;
-        if(dev<=42||absSat<=0.30) msg='No blush detected. Apply colour to the apples of your cheeks within the guide.';
-        else if(satIncrease<=0.10) msg='Blush is too sheer. Build up a little more colour and blend within the outline.';
+        if(dev<=42*k||absSat<=0.30*k) msg='No blush detected. Apply colour to the apples of your cheeks within the guide.';
+        else if(satIncrease<=0.10*k) msg='Blush is too sheer. Build up a little more colour and blend within the outline.';
         else msg='Colour is not reading as blush. Try a pinker or rosier shade and blend upward along the guide.';
         return{passed:false,message:msg};
       }
@@ -3214,7 +3389,8 @@ function analyzeZoneColor(video, lm, step, sampleOverride) {
       const darkShift=skBr-br; // contour must darken the zone relative to forehead
       const satIncrease=rgbSat(r,g,b)-rgbSat(sk.r,sk.g,sk.b);
       // Requires the zone to be noticeably darker (shadow product) AND more saturated (brown tone)
-      const passed=br>20&&br<230&&dev>50&&darkShift>18&&satIncrease>0.06;
+      const k=detectScale('contour', sk);
+      const passed=br>20&&br<230&&dev>50*k&&darkShift>18*k&&satIncrease>0.06*k;
       return{passed,message:passed?goodMessages.contour:tipMessages.contour};
     }
 
@@ -3224,7 +3400,8 @@ function analyzeZoneColor(video, lm, step, sampleOverride) {
       const skBr=sk.r*.299+sk.g*.587+sk.b*.114;
       const dev=Math.abs(r-sk.r)+Math.abs(g-sk.g)+Math.abs(b-sk.b);
       const darkShift=skBr-br; // eyebrows must darken the brow zone
-      const passed=br>15&&br<230&&dev>48&&darkShift>22;
+      const k=detectScale('eyebrows', sk);
+      const passed=br>15&&br<230&&dev>48*k&&darkShift>22*k;
       return{passed,message:passed?goodMessages.eyebrows:tipMessages.eyebrows};
     }
 
@@ -3330,7 +3507,7 @@ function toneToRGB(k){return{light_warm:{r:225,g:192,b:167},light_cool:{r:218,g:
 const goodMessages={lips:'Great lip color! Your lips look well-defined and beautiful.',blush:'Beautiful blush placement! Your cheeks are glowing naturally.',eyebrows:'Your brows look well-defined and perfectly framed!',contour:'Great contour! Your cheekbones look beautifully sculpted.'};
 const tipMessages={lips:'Lipstick not detected yet. Make sure the area is well-lit, fill within the outline, and hold still for a moment.',blush:'Apply a little more blush to the apples of your cheeks and blend upward.',eyebrows:'Fill in the brows more with short, upward strokes then check again.',contour:'Build up the contour a little more along the cheekbone hollow and blend the edges.'};
 
-function showFeedback(passed, message, quality) {
+function showFeedback(passed, message, quality, canContinue) {
   const area=document.getElementById('feedback-area');
   area.style.display=''; area.className='feedback-area '+(passed?'good':'bad');
   document.getElementById('feedback-icon').textContent=passed?'✓':'✗';
@@ -3351,6 +3528,18 @@ function showFeedback(passed, message, quality) {
     nextBtn.style.display='none'; nextBtn.textContent='Next Step →'; nextBtn.onclick=nextStep;
     const retryBtn=document.getElementById('btn-retry');
     retryBtn.textContent='Retry'; retryBtn.onclick=retryStep; retryBtn.style.display='';
+    if (canContinue){
+      document.getElementById('feedback-msg').textContent=message+
+        ' If you have already applied it, the camera may just not be able to see this shade. You can continue.';
+      const isLast=STATE.currentStep>=STEPS.length-1;
+      nextBtn.textContent='Continue anyway →'; nextBtn.style.display='';
+      nextBtn.onclick=()=>{
+        const step=STEPS[STATE.currentStep];
+        const prev=STATE.stepResults.find(x=>x.step===step);
+        recordStepResult(step,{...(prev||{}), passed:false, userContinued:true});
+        isLast?showSummary():nextStep();
+      };
+    }
   }
 }
 
@@ -3378,6 +3567,7 @@ function showSummary() {
     // Per-step quality line: smudging, unevenness, product amount.
     let qLine='';
     if (r.skipped)                       qLine='Step skipped';
+    else if (r.userContinued)            qLine='Not confirmed by the camera (you continued)';
     else if (r.quality?.source==='unavailable') qLine='Quality not assessed';
     else if (r.quality)                  qLine=r.quality.passed
                                               ? 'Blending, evenness and amount all good'
