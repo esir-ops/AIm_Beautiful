@@ -5,7 +5,8 @@
 (()=>{
 const BASE_URL='https://storage.googleapis.com/teachable-machine-models/mobilenet_v2_weights_tf_dim_ordering_tf_kernels_0.35_224_no_top/model.json';
 const INPUT=224, SAMPLE_MS=180, EPOCHS=40;
-const STEP_NAMES={lips:'Lips', blush:'Blush', eyebrows:'Eyebrows', contour:'Contour'};
+// The app checks lips in 3 parts, so each part gets its own crop here.
+const STEP_NAMES={lips_top:'Top Lip', lips_bottom:'Bottom Lip', lips:'Whole Lips', blush:'Blush', eyebrows:'Eyebrows', contour:'Contour'};
 
 const SLOTS = {
   glasses:{
@@ -36,7 +37,8 @@ const SLOTS = {
     turnMax:0.22,
     tips:'Pick the step and what\'s true about it right now, then record while moving a little. '
         +'<b>Good</b> can\'t be combined with the others, but the problems can. Use the actual Squad, Detail and Chuchu Beauty products, '
-        +'and record a bare face as <b>Too much / too little</b>.',
+        +'and record a bare face as <b>Too much / too little</b>. '
+        +'<b>Lips:</b> record Top Lip, Bottom Lip and Whole Lips separately, since the app checks each one.',
     heuristic:(img,lm,video,step)=>{
       const q=analyzeQualityHeuristic(video,lm,step);
       return { smudged:q.issues.includes('smudged'), uneven:q.issues.includes('uneven'),
@@ -54,7 +56,7 @@ const posIdx=S.multi?-1:S.labels.indexOf(S.positive);
 const T = {
   stream:null, mesh:null, busy:false, lastT:-1,
   recording:false, recClass:-1, mode:'train', lastSample:0, working:false,
-  step:'lips', qLabels:new Set(['good']),
+  step:'lips_top', qLabels:new Set(['good']),
   train:[], test:[],          // {y, group, step, emb, flip} (+ heur, inst for test)
   embed:null, dim:0, head:null, full:null, installed:null, frame:0,
   crop:document.createElement('canvas'), results:null,

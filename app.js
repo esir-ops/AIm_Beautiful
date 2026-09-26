@@ -2118,6 +2118,8 @@ function paintReferenceGuide(canvasEl, style) {
 function zoneRegionPts(lm, step, W, H) {
   const P=i=>({x:lm[i].x*W, y:lm[i].y*H});
   if (step==='lips')     return [{outer:lmPts(lm,LIP_OUTER_LOOP,W,H), inner:lmPts(lm,LIP_INNER,W,H)}];
+  if (step==='lips_top') return [{outer:lmPts(lm,LIP_FILL_TOP,W,H), inner:null}];
+  if (step==='lips_bottom') return [{outer:lmPts(lm,LIP_FILL_BOT,W,H), inner:null}];
   if (step==='eyebrows') return [
     {outer:[...BROW_LEFT_TOP.map(P),  ...[...BROW_LEFT_BOTTOM ].reverse().map(P)], inner:null},
     {outer:[...BROW_RIGHT_TOP.map(P), ...[...BROW_RIGHT_BOTTOM].reverse().map(P)], inner:null},
@@ -2160,7 +2162,8 @@ function captureBaseline(image, lm) {
     const skin=measureSkin(fd,lm,W,H);
     if (!skin){ STATE.baseline=null; return; }
     const base={ skin };
-    STEPS.forEach(s=>{ base[s]=measureZone(fd,lm,s,W,H); });
+    // Top and bottom lip too, since the lip step checks each one on its own.
+    [...STEPS,'lips_top','lips_bottom'].forEach(s=>{ base[s]=measureZone(fd,lm,s,W,H); });
     STATE.baseline=base;
     console.log('[baseline] bare-face reference captured', base);
   } catch(e){ console.warn('[baseline] capture failed:', e.message); STATE.baseline=null; }
@@ -2592,6 +2595,8 @@ async function initQualityModel() {
 function zoneShapes(lm, step, W, H) {
   const P=i=>({x:lm[i].x*W, y:lm[i].y*H});
   if (step==='lips')     return [{type:'poly', pts:lmPts(lm,LIP_OUTER_LOOP,W,H)}];
+  if (step==='lips_top') return [{type:'poly', pts:lmPts(lm,LIP_FILL_TOP,W,H)}];
+  if (step==='lips_bottom') return [{type:'poly', pts:lmPts(lm,LIP_FILL_BOT,W,H)}];
   if (step==='eyebrows') return [
     {type:'poly', pts:[...BROW_LEFT_TOP.map(P),  ...[...BROW_LEFT_BOTTOM ].reverse().map(P)]},
     {type:'poly', pts:[...BROW_RIGHT_TOP.map(P), ...[...BROW_RIGHT_BOTTOM].reverse().map(P)]},
@@ -2665,7 +2670,13 @@ const QUALITY_BAND = {
   contour:  { minAmount:10, maxAmount:105, unevenMax:0.72, smudgeMax:0.68 },
 };
 
-function analyzeQualityHeuristic(video, lm, step) {
+// Lip sub-step zone for the quality model: 0 = top, 1 = bottom, 2 = whole mouth.
+const LIP_QUALITY_ZONE = ['lips_top','lips_bottom','lips'];
+// Top and bottom lip use the whole-lip tolerances.
+const qualityBaseStep = s => (s==='lips_top'||s==='lips_bottom') ? 'lips' : s;
+
+function analyzeQualityHeuristic(video, lm, zone) {
+  const step=qualityBaseStep(zone);
   const W=video.videoWidth||640, H=video.videoHeight||480;
   const mk=()=>{const c=document.createElement('canvas');c.width=W;c.height=H;
                 return c.getContext('2d',{willReadFrequently:true});};
@@ -2673,7 +2684,7 @@ function analyzeQualityHeuristic(video, lm, step) {
   const fx=mk(); fx.drawImage(video,0,0,W,H);
   const frame=fx.getImageData(0,0,W,H).data;
 
-  const shapes=zoneShapes(lm,step,W,H);
+  const shapes=zoneShapes(lm,zone,W,H);
   const ix=mk(); paintZone(ix,shapes,1.0);
   const ox=mk(); paintZone(ox,shapes,QUALITY_HALO[step]||1.45);
   const inD =ix.getImageData(0,0,W,H).data;
@@ -2869,7 +2880,8 @@ async function checkPlacement() {
   if (!lm){showFeedback(false,'Face not detected clearly. Make sure you are well-lit and centred.');return;}
 
   if (step==='lips'){
-    const r=await analyzeLipSubStepAsync(vid,lm,STATE.lipSubStep);
+    let r=await analyzeLipSubStepAsync(vid,lm,STATE.lipSubStep);
+    if (!r.passed) r=await lipModelSecondOpinion(vid,lm,STATE.lipSubStep,r);
     if (!r.passed)      { showFeedback(false,r.message); return; }
     if (r.warning)      { showShadeWarning(r.message,r);  return; }
     // Quality is judged on the finished mouth, so it only runs on the last sub-step.
@@ -2891,6 +2903,17 @@ async function checkPlacement() {
   const message=passed?r.message:q.message;
   recordStepResult(step,{passed,message,quality:q});
   showFeedback(passed,message,q);
+}
+
+// The colour rules miss nude shades and some lighting. If the trained model sees
+// product on this part of the lips, trust it over a "no lipstick" reading.
+async function lipModelSecondOpinion(video, lm, subStep, r) {
+  await initQualityModel();
+  let q=null;
+  try { q=await analyzeQualityModel(video,lm,LIP_QUALITY_ZONE[subStep]||'lips'); } catch(e){ q=null; }
+  if (!q || q.metrics.amount>=0.5) return r;
+  console.log('[quality] model sees lipstick on '+(LIP_QUALITY_ZONE[subStep]||'lips')+', overriding colour check.', q.metrics);
+  return {passed:true, warning:false, message:'Lipstick applied and recognized! Great coverage.'};
 }
 
 // One row per step; a retry replaces the old result.
@@ -3015,7 +3038,7 @@ async function analyzeLipSubStepAsync(video, lm, subStep) {
   // cheek-based thresholds are only a fallback.
   let detected, unstable=false;
   const bv = (STATE.baseline && firstFrame)
-    ? baselineVerdict(firstFrame.data, lm, 'lips', firstFrame.W, firstFrame.H)
+    ? baselineVerdict(firstFrame.data, lm, LIP_QUALITY_ZONE[subStep]||'lips', firstFrame.W, firstFrame.H)
     : null;
 
   if (bv){
@@ -3071,20 +3094,26 @@ async function analyzeLipSubStepAsync(video, lm, subStep) {
 
 // ── Zone colour analysis ──
 // Minimum change from the before photo that counts as product applied, per step.
+// These are for full coverage; baselineVerdict lowers them for sheer looks (k < 1).
 const BASELINE_MIN = {
-  lips:     { delta:34, extra:(c)=>c.redGain>10||c.pinkGain>12||c.satGain>0.07 },
-  eyebrows: { delta:26, extra:(c)=>c.darker>9 },
-  blush:    { delta:20, extra:(c)=>c.redGain>7||c.pinkGain>8||c.satGain>0.045 },
-  contour:  { delta:20, extra:(c)=>c.darker>7 },
+  lips:     { delta:34, extra:(c,k)=>c.redGain>10*k||c.pinkGain>12*k||c.satGain>0.07*k },
+  eyebrows: { delta:26, extra:(c,k)=>c.darker>9*k },
+  blush:    { delta:20, extra:(c,k)=>c.redGain>7*k||c.pinkGain>8*k||c.satGain>0.045*k },
+  contour:  { delta:20, extra:(c,k)=>c.darker>7*k },
 };
 
 // Has this step been applied? Judged against the before photo. null if there's no baseline.
 function baselineVerdict(frameData, lm, step, W, H) {
   const c=compareToBaseline(frameData, lm, step, W, H);
   if (!c) return null;
-  const rule=BASELINE_MIN[step]||BASELINE_MIN.lips;
-  const applied = c.delta>rule.delta && rule.extra(c);
-  return {applied, cmp:c};
+  const base=qualityBaseStep(step);
+  const rule=BASELINE_MIN[base]||BASELINE_MIN.lips;
+  // A sheer look (School: "the lightest wash") changes the colour much less, so it
+  // needs less change to count. Same scaling as the quality check's minimum amount.
+  const cov=Math.max(0.45, Math.min(1, styleIntensity(base)));
+  const k=0.35+0.65*cov;
+  const applied = c.delta>rule.delta*k && rule.extra(c,k);
+  return {applied, cmp:c, k:+k.toFixed(2)};
 }
 
 function analyzeZoneColor(video, lm, step, sampleOverride) {
